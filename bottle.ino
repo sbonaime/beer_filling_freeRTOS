@@ -15,11 +15,11 @@ void intro() {
   image_in_memory.setFont(&fonts::FreeMonoBold24pt7b);
   image_in_memory.setTextSize(1);
 
-  image_in_memory.setTextColor(TFT_BLUE );
+  image_in_memory.setTextColor(TFT_BLUE);
   image_in_memory.setCursor(5, 30);
   image_in_memory.println("BOTTLE");
 
-  image_in_memory.setTextColor(TFT_RED );
+  image_in_memory.setTextColor(TFT_RED);
   image_in_memory.setCursor(5, 100);
   image_in_memory.println("FILLING");
   image_in_memory.pushSprite(0, 0);
@@ -32,20 +32,20 @@ void intro() {
 
   // Remplissage virtuel
   for (int i = 0; i < 100; i++) {
-    draw_beer(bottle_position_x, bottle_position_y, i, 100, TFT_BEER,  TFT_BLACK);
+    draw_beer(bottle_position_x, bottle_position_y, i, 100, TFT_BEER, TFT_BLACK, false);
     delay(20);
   }
   delay(1000);
 
   // Clear intro screen
-  image_in_memory.createSprite(M5.Display.width(), M5.Display.height());
+  // image_in_memory.createSprite(M5.Display.width(), M5.Display.height());
   image_in_memory.fillScreen(TFT_BLACK);
   image_in_memory.pushSprite(0, 0);
   appState = STATE_MENU;
   drawMenu();
 }
 
-void draw_beer(int x_position, int y_position, int poids_actuel, int poids_final, uint32_t liquid_color, uint32_t bottle_color) {
+void draw_beer(int x_position, int y_position, int poids_actuel, int poids_final, uint32_t liquid_color, uint32_t bottle_color, boolean menu) {
   //                  A   D2    B
   //             0  b ----------
   //                  |        |
@@ -71,14 +71,12 @@ void draw_beer(int x_position, int y_position, int poids_actuel, int poids_final
   b = (D1 - D2) / 2, ax = b, ay = 0, bx = b + D2, by = 0, cx = bx, cy = H2, dx = D1;
   dy = H2 + HG, ex = D1, ey = H1 + HG + H2, fx = 0, fy = H1 + HG + H2, gx = 0, gy = H2 + HG, hx = ax, hy = H2;
 
-  beer_in_memory.fillScreen(TFT_WHITE);
 
   if ((poids_actuel <= poids_final) && (poids_actuel >= 0)) {
     new_beer_height = poids_actuel * (H1 + HG) / poids_final;
 
     if (new_beer_height >= old_beer_height) {
       // Create a 8 bit sprite 80 pixels wide, 35 high (2800 bytes of RAM needed)
-      beer_in_memory.setColorDepth(8);
 
       // image_in_memory.createSprite(IWIDTH, IHEIGHT);
       beer_in_memory.createSprite(D1 + 1, H1 + HG + H2 + 1);
@@ -86,8 +84,8 @@ void draw_beer(int x_position, int y_position, int poids_actuel, int poids_final
       // Fill it with black (this will be the transparent colour this time)
       beer_in_memory.fillSprite(transparent_color);
 
-      // image_in_memory.fillRect(position_x+1, position_y + H1 + H2 + HG - new_h, D1 - 1, new_h, TFT_ORANGE);
-      beer_in_memory.fillRect(1, H1 + H2 + HG - new_beer_height, D1 - 1, new_beer_height, liquid_color);
+      // beer rectangle
+      beer_in_memory.fillRect(0, H1 + H2 + HG - new_beer_height, D1, new_beer_height, liquid_color);
 
       // Dessin de la forme negative de la bouteille
       beer_in_memory.fillRect(0, 0, ax, hy, transparent_color);
@@ -120,7 +118,11 @@ void draw_beer(int x_position, int y_position, int poids_actuel, int poids_final
 
       // Push sprite to TFT screen CGRAM at coordinate x,y (top left corner)
       // Specify what colour is to be treated as transparent.
-      beer_in_memory.pushSprite(x_position, y_position, transparent_color);
+      if (menu == false) {
+        beer_in_memory.pushSprite(x_position, y_position, transparent_color);
+      } else {
+        beer_in_memory.pushSprite(&image_in_memory, x_position, y_position, transparent_color);
+      }
 
       // if (beer) {
       //   // We put the bottle at the right place

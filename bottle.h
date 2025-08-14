@@ -7,7 +7,7 @@ float poids = 0.0, old_poids = 0.0, poids_bouteille = 0.0, poids_final = 0.0, po
 float mg_to_fill = 0.0, ml_to_fill = 360.0;
 float bottle_scaling = 1.7;
 
-uint32_t transparent_color = TFT_GREEN;
+uint32_t transparent_color = TFT_TRANSPARENT;
 
 // Elements pour UI
 #define TFT_GREY 0x5AEB

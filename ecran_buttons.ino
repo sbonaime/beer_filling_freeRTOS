@@ -43,9 +43,8 @@ static inline void drawMenu() {
     image_in_memory.drawString(menuItems[i], M5.Display.width() / 2, 60 + i * 70);
   }
   bottle_scaling = 1;
-  
+  draw_beer(280, 20, 33, 33, TFT_BEER, TFT_WHITE, true);
   image_in_memory.pushSprite(0, 0);
-  draw_beer(280, 20, 33, 33, TFT_BEER, TFT_WHITE );
 }
 
 static inline void drawScreen(const char* title, uint16_t color) {
@@ -151,7 +150,7 @@ void setup() {
   } else {
     Serial.printf("Sprite OK: %dx%d\n", image_in_memory.width(), image_in_memory.height());
   }
-  
+
 
   // Intro animée
   intro();
