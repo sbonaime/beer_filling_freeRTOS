@@ -109,7 +109,6 @@ static inline void updateValue(float value, uint16_t background_color) {
   value_canvas.createSprite(100, 50);
 
   value_canvas.setFont(&fonts::Font4);
-  value_canvas.setTextDatum(middle_center);
   value_canvas.fillScreen(background_color);
   if (value < 2) {  // Gravity
     value_canvas.drawFloat(value, 3, 0, 0);
@@ -123,12 +122,12 @@ static inline void updateValue(float value, uint16_t background_color) {
 
 
 static inline void drawSettingMenu(const char* title, float value, uint16_t background_color) {
-  image_in_memory.fillScreen(background_color);
-  image_in_memory.setTextDatum(middle_center);
-  image_in_memory.setTextColor(TFT_WHITE, background_color);
-  image_in_memory.setFont(&fonts::Font4);
+  M5.Display.fillScreen(background_color);
+  M5.Display.setTextDatum(middle_center);
+  M5.Display.setTextColor(TFT_WHITE, background_color);
+  M5.Display.setFont(&fonts::Font4);
 
-  image_in_memory.drawString(title, (M5.Display.width() / 2), (M5.Display.height() / 2) - 80);
+  M5.Display.drawString(title, (M5.Display.width() / 2), (M5.Display.height() / 2) - 80);
   updateValue(value, background_color);
   // if (value < 2) {  // Gravity
   //   image_in_memory.drawFloat(value, 3, M5.Display.width() / 2, M5.Display.height() / 2);
@@ -140,17 +139,14 @@ static inline void drawSettingMenu(const char* title, float value, uint16_t back
   int button_width = M5.Display.width() / 3;
 
   // Buttons
-  image_in_memory.fillRoundRect(0, M5.Display.height() - button_height, button_width, button_height, 5, TFT_GREY);
-  image_in_memory.fillRoundRect(button_width, M5.Display.height() - button_height, button_width, button_height, 5, TFT_BLUE);
-  image_in_memory.fillRoundRect(button_width * 2, M5.Display.height() - button_height, button_width, button_height, 5, TFT_GREY);
+  M5.Display.fillRoundRect(0, M5.Display.height() - button_height, button_width, button_height, 5, TFT_GREY);
+  M5.Display.fillRoundRect(button_width, M5.Display.height() - button_height, button_width, button_height, 5, TFT_BLUE);
+  M5.Display.fillRoundRect(button_width * 2, M5.Display.height() - button_height, button_width, button_height, 5, TFT_GREY);
 
   // Text
-  image_in_memory.drawString("-", button_width / 2, M5.Display.height() - button_height / 2, TFT_WHITE);
-  image_in_memory.drawString("Ok", button_width + button_width / 2, M5.Display.height() - button_height / 2, TFT_WHITE);
-  image_in_memory.drawString("+", 2 * button_width + button_width / 2, M5.Display.height() - button_height / 2, TFT_WHITE);
-
-  // image_in_memory.drawString("Validate", M5.Display.width() / 2, M5.Display.height() - 18);
-  image_in_memory.pushSprite(0, 0);
+  M5.Display.drawString("-", button_width / 2, M5.Display.height() - button_height / 2, TFT_WHITE);
+  M5.Display.drawString("Ok", button_width + button_width / 2, M5.Display.height() - button_height / 2, TFT_WHITE);
+  M5.Display.drawString("+", 2 * button_width + button_width / 2, M5.Display.height() - button_height / 2, TFT_WHITE);
 }
 
 // ---------- Tâches ----------
