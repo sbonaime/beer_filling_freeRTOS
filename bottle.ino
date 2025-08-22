@@ -21,7 +21,7 @@ void intro() {
 
   image_in_memory.setTextColor(TFT_RED);
   image_in_memory.setCursor(5, 100);
-  image_in_memory.println("FILLING");
+  image_in_memory.println("FILLER");
   image_in_memory.pushSprite(0, 0);
 
 
@@ -41,7 +41,7 @@ void intro() {
   // image_in_memory.createSprite(M5.Display.width(), M5.Display.height());
   image_in_memory.fillScreen(TFT_BLACK);
   image_in_memory.pushSprite(0, 0);
-  appState = STATE_MENU;
+  appState = STATE_MAIN_MENU;
   drawMenu();
 }
 
