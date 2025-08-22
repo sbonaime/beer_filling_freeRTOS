@@ -1,3 +1,12 @@
+float saved_beer_gravity;
+float saved_scale_calibration_weight;
+
+float beer_gravity;
+float scale_offset;
+float scale_factor;
+float scale_calibration_weight;
+
+
 // Bottle parameters
 int bottle_position_x, bottle_position_y, D1, D2, H1, HG, H2;
 int new_beer_height, old_beer_height;

@@ -5,18 +5,10 @@
 #include <Preferences.h>
 
 Preferences preferences;
-float beer_gravity;
 
-// Vieille balance
-// 00:00:01.474 -> OFFSET: -954218
-// 00:01:03.500 -> WEIGHT: 180
-// 00:01:05.277 -> SCALE:  -1121.379150
-
-
-// nouvelle ???
-// 00:02:28.776 -> OFFSET: -12068
-// 00:02:33.803 -> WEIGHT: 180
-// 00:02:35.514 -> SCALE:  -0.196387
+LGFX_Button button_save;
+LGFX_Button button_decrease;
+LGFX_Button button_increase;
 
 //  HX711
 const uint8_t dataPin = 16;
@@ -25,9 +17,7 @@ HX711 scale;
 QueueHandle_t weightQueue;
 float currentWeight = 0;
 
-float scale_offset;
-float scale_factor;
-float scale_calibration_weight;
+
 
 // ---------- Sprite (frame buffer en RAM, 8 bits pour CoreS3) ----------
 M5Canvas image_in_memory(&M5.Display);
@@ -65,18 +55,19 @@ enum ButtonEvent { BTN_A,
 // ---------- Rendu ----------
 static inline void drawMenu() {
   image_in_memory.fillScreen(TFT_BLACK);
-  image_in_memory.setTextDatum(middle_center);
+  image_in_memory.setTextDatum(middle_left);
   image_in_memory.setFont(&fonts::FreeMonoBold18pt7b);
   image_in_memory.setTextSize(1);
 
   int menu_item_height = 45;
   for (int i = 0; i < menuSize; i++) {
     image_in_memory.setTextColor((i == currentSelection) ? TFT_YELLOW : TFT_WHITE, TFT_BLACK);
-    image_in_memory.drawString(menuItems[i], M5.Display.width() / 2, 20 + menu_item_height + i * menu_item_height);
+    image_in_memory.drawString(menuItems[i], 10, 30 + menu_item_height + i * menu_item_height);
   }
   bottle_scaling = 1;
   draw_beer(280, 20, 33, 33, TFT_BEER, TFT_WHITE, true);
   image_in_memory.pushSprite(0, 0);
+  drawWeight();
 }
 
 static inline void drawWeight() {
@@ -84,6 +75,7 @@ static inline void drawWeight() {
   weight_in_memory.fillScreen(TFT_BLACK);
   weight_in_memory.setFont(&fonts::Font2);
   weight_in_memory.setTextSize(1);
+
 
   weight_in_memory.setCursor(0, 0);
   weight_in_memory.printf("Weight: %.1fg", currentWeight);
@@ -105,11 +97,12 @@ static inline void drawScreen(const char* title, uint16_t color) {
 }
 
 static inline void updateValue(float value, uint16_t background_color) {
-  value_canvas.setColorDepth(8);
+  // value_canvas.setColorDepth(16);
   value_canvas.createSprite(100, 50);
-
-  value_canvas.setFont(&fonts::Font4);
   value_canvas.fillScreen(background_color);
+  value_canvas.setTextColor(TFT_WHITE, background_color);
+  value_canvas.setFont(&fonts::Font4);
+
   if (value < 2) {  // Gravity
     value_canvas.drawFloat(value, 3, 0, 0);
   } else {  // Calibration weight
@@ -138,15 +131,27 @@ static inline void drawSettingMenu(const char* title, float value, uint16_t back
   int button_height = 40;
   int button_width = M5.Display.width() / 3;
 
+
+  LGFX_Button button_save;
+  LGFX_Button button_decrease;
+  LGFX_Button button_increase;
+
+  button_decrease.initButtonUL(&M5.Display, 0, M5.Display.height() - button_height, button_width, button_height, TFT_RED, TFT_BEER, TFT_BLACK, "-", 1, 1);
+  button_decrease.drawButton();
+  button_save.initButtonUL(&M5.Display, button_width, M5.Display.height() - button_height, button_width, button_height, TFT_RED, TFT_BEER, TFT_BLACK, "Save", 1, 1);
+  button_save.drawButton();
+  button_increase.initButtonUL(&M5.Display, button_width * 2, M5.Display.height() - button_height, button_width, button_height, TFT_RED, TFT_BEER, TFT_BLACK, "+", 1, 1);
+  button_increase.drawButton();
+
   // Buttons
-  M5.Display.fillRoundRect(0, M5.Display.height() - button_height, button_width, button_height, 5, TFT_GREY);
-  M5.Display.fillRoundRect(button_width, M5.Display.height() - button_height, button_width, button_height, 5, TFT_BLUE);
-  M5.Display.fillRoundRect(button_width * 2, M5.Display.height() - button_height, button_width, button_height, 5, TFT_GREY);
+  // M5.Display.fillRoundRect(0, M5.Display.height() - button_height, button_width, button_height, 5, TFT_GREY);
+  // M5.Display.fillRoundRect(button_width, M5.Display.height() - button_height, button_width, button_height, 5, TFT_BLUE);
+  // M5.Display.fillRoundRect(button_width * 2, M5.Display.height() - button_height, button_width, button_height, 5, TFT_GREY);
 
   // Text
-  M5.Display.drawString("-", button_width / 2, M5.Display.height() - button_height / 2, TFT_WHITE);
-  M5.Display.drawString("Ok", button_width + button_width / 2, M5.Display.height() - button_height / 2, TFT_WHITE);
-  M5.Display.drawString("+", 2 * button_width + button_width / 2, M5.Display.height() - button_height / 2, TFT_WHITE);
+  // M5.Display.drawString("-", button_width / 2, M5.Display.height() - button_height / 2, TFT_WHITE);
+  // M5.Display.drawString("Ok", button_width + button_width / 2, M5.Display.height() - button_height / 2, TFT_WHITE);
+  // M5.Display.drawString("+", 2 * button_width + button_width / 2, M5.Display.height() - button_height / 2, TFT_WHITE);
 }
 
 // ---------- Tâches ----------
@@ -239,7 +244,11 @@ void taskMenu(void*) {
             break;
           case BTN_B:
             // Save beer_gravity in EEPROM
-            preferences.putFloat("beer_gravity", beer_gravity);
+            if (beer_gravity != saved_beer_gravity) {
+              preferences.putFloat("beer_gravity", beer_gravity);
+              saved_beer_gravity = beer_gravity;
+              Serial.println("Nouvelle beer_gravity => sauvegarde");
+            }
             appState = STATE_MAIN_MENU;
             break;
         }
@@ -255,20 +264,21 @@ void taskMenu(void*) {
             break;
           case BTN_B:
             // Do the calibration with scale_calibration_weight
-            scale.calibrate_scale(scale_calibration_weight, 10);
-            Serial.printf("Calibration initiale avec %.1fg\n", scale_calibration_weight);
+            if (scale_calibration_weight != saved_scale_calibration_weight) {
+              saved_scale_calibration_weight = scale_calibration_weight;
+              Serial.println("Nouvelle scale_calibration_weight => sauvegarde");
+              scale.calibrate_scale(scale_calibration_weight, 10);
 
-            // Get calibration parameters
-            scale_factor = scale.get_scale();
-            scale_offset = scale.get_offset();
+              // Get calibration parameters
+              scale_factor = scale.get_scale();
+              scale_offset = scale.get_offset();
 
-            // Save values in EEPROM
-            preferences.putFloat("scale_offset", scale_offset);
-            preferences.putFloat("scale_factor", scale_factor);
-            preferences.putFloat("scale_calibration_weight", scale_calibration_weight);
-
+              // Save values in EEPROM
+              preferences.putFloat("scale_offset", scale_offset);
+              preferences.putFloat("scale_factor", scale_factor);
+              preferences.putFloat("scale_calibration_weight", scale_calibration_weight);
+            }
             appState = STATE_MAIN_MENU;
-
             break;
         }
       } else {
@@ -363,8 +373,12 @@ void setup() {
   preferences.begin("filler", false);
   scale_offset = preferences.getFloat("scale_offset", -954218);
   scale_factor = preferences.getFloat("scale_factor", -1121.379150);
-  scale_calibration_weight = preferences.getFloat("scale_calibration_weight", 180);
-  beer_gravity = preferences.getFloat("beer_gravity", 1.015);
+  saved_scale_calibration_weight = preferences.getFloat("scale_calibration_weight", 180);
+  saved_beer_gravity = preferences.getFloat("beer_gravity", 1.015);
+
+
+  scale_calibration_weight = saved_scale_calibration_weight;
+  beer_gravity = saved_beer_gravity;
 
   scale.set_scale(scale_factor);
   scale.set_offset(scale_offset);
