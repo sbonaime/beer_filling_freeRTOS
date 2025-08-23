@@ -6,7 +6,6 @@ float scale_offset;
 float scale_factor;
 float scale_calibration_weight;
 
-
 // Bottle parameters
 int bottle_position_x, bottle_position_y, D1, D2, H1, HG, H2;
 int new_beer_height, old_beer_height;
@@ -22,3 +21,9 @@ uint32_t transparent_color = TFT_TRANSPARENT;
 #define TFT_GREY 0x5AEB
 #define TFT_RED_STOP 0xE36D  // Couleur boutton stop
 #define TFT_BEER 0xD9840D    // Couleur biere
+
+
+// Fifo
+#define MAX_FIFO_SIZE 10
+float moving_average;
+float moving_average_sum;

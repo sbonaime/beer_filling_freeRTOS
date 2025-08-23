@@ -3,6 +3,7 @@
 #include "bottle.h"
 #include <HX711.h>
 #include <Preferences.h>
+#include <FIFObuf.h>
 
 Preferences preferences;
 
@@ -18,6 +19,8 @@ QueueHandle_t weightQueue;
 float currentWeight = 0;
 
 
+// FIFO object for float
+FIFObuf<float> fifo_scale(MAX_FIFO_SIZE);
 
 // ---------- Sprite (frame buffer en RAM, 8 bits pour CoreS3) ----------
 M5Canvas image_in_memory(&M5.Display);
@@ -65,7 +68,7 @@ static inline void drawMenu() {
     image_in_memory.drawString(menuItems[i], 10, 30 + menu_item_height + i * menu_item_height);
   }
   bottle_scaling = 1;
-  draw_beer(280, 20, 33, 33, TFT_BEER, TFT_WHITE, true);
+  draw_beer(280, 50, 33, 33, TFT_BEER, TFT_WHITE, true);
   image_in_memory.pushSprite(0, 0);
   drawWeight();
 }
@@ -73,16 +76,19 @@ static inline void drawMenu() {
 static inline void drawWeight() {
   // Serial.println("drawWeight");
   weight_in_memory.fillScreen(TFT_BLACK);
-  weight_in_memory.setFont(&fonts::Font2);
+  weight_in_memory.setFont(&fonts::FreeMonoBold12pt7b);
   weight_in_memory.setTextSize(1);
-
-
   weight_in_memory.setCursor(0, 0);
-  weight_in_memory.printf("Weight: %.1fg", currentWeight);
+  weight_in_memory.printf("%.1fg", fabs(currentWeight));
+
+  weight_in_memory.setCursor(100, 0);
+  weight_in_memory.printf("Avge : %.1fg", fabs(moving_average));
+
   //  weight_in_memory.pushSprite(M5.Display.width(), 10);
   //weight_in_memory.pushSprite(M5.Display.width(), 10);
   weight_in_memory.pushSprite(10, 10);
 }
+
 static inline void drawScreen(const char* title, uint16_t color) {
   image_in_memory.fillScreen(color);
   image_in_memory.setTextDatum(middle_center);
@@ -164,6 +170,12 @@ void taskHX711(void*) {
 
       if (weightQueue != NULL) {
         xQueueSend(weightQueue, &weight, 0);
+
+        // Fifo and moving average
+        moving_average_sum -= fifo_scale.pop();
+        fifo_scale.push(weight);
+        moving_average_sum += weight;
+        moving_average = moving_average_sum / MAX_FIFO_SIZE;
       }
 
 
@@ -297,7 +309,8 @@ void taskMenu(void*) {
 void taskDisplay(void*) {
   AppState lastState = (AppState)-1;
   int lastSelection = -1;
-  float lastDrawnWeight = -99999.0f;  // impossible value to force first draw
+  float lastDrawnWeight = -99999.0f;   // impossible value to force first draw
+  float lastDrawnAverage = -99999.0f;  // impossible value to force first draw
 
   for (;;) {
     bool needRedraw = false;
@@ -321,10 +334,11 @@ void taskDisplay(void*) {
     float newWeight;
     if (weightQueue != NULL && xQueueReceive(weightQueue, &newWeight, 0) == pdTRUE) {
       currentWeight = newWeight;
-      // Only redraw weight if it changed significantly
-      if (appState == STATE_MAIN_MENU && fabs(currentWeight - lastDrawnWeight) > 0.1f) {
+      // Only redraw weight/average if they changed significantly
+      if (appState == STATE_MAIN_MENU && (fabs(currentWeight - lastDrawnWeight) > 0.1f || fabs(moving_average - lastDrawnAverage) > 0.1f)) {
         drawWeight();
         lastDrawnWeight = currentWeight;
+        lastDrawnAverage = moving_average;
       }
     }
 
@@ -357,12 +371,18 @@ void setup() {
   }
 
   weight_in_memory.setColorDepth(8);
-  if (!weight_in_memory.createSprite(120, 20)) {
+  if (!weight_in_memory.createSprite(320, 24)) {
     Serial.println("Erreur: Impossible de créer le sprite weight_in_memory !");
   } else {
     Serial.println("Sprite weight_in_memory OK");
   }
 
+  // INIT FIFO buffer
+  for (int i = 0; i < MAX_FIFO_SIZE; ++i) {
+    fifo_scale.push(0);
+  }
+  moving_average = 0.0;
+  moving_average_sum = 0.0;
 
   // HX711 INIT
   scale.begin(dataPin, clockPin);
