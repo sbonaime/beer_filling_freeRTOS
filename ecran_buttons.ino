@@ -7,9 +7,6 @@
 
 Preferences preferences;
 
-LGFX_Button button_save;
-LGFX_Button button_decrease;
-LGFX_Button button_increase;
 
 //  HX711
 const uint8_t dataPin = 16;
@@ -17,7 +14,8 @@ const uint8_t clockPin = 17;
 HX711 scale;
 QueueHandle_t weightQueue;
 float currentWeight = 0;
-
+bool debug_print = true;
+// bool debug_print = false;
 
 // FIFO object for float
 FIFObuf<float> fifo_scale(MAX_FIFO_SIZE);
@@ -29,7 +27,7 @@ M5Canvas weight_in_memory(&M5.Display);
 M5Canvas value_canvas(&M5.Display);
 
 // ---------- Menu ----------
-const char* menuItems[] = { "Filler", "Density", "Tare", "Calibration" };
+const char* menuItems[] = { "Filler", "Gravity", "Tare", "Calibration" };
 const int menuSize = sizeof(menuItems) / sizeof(menuItems[0]);
 volatile int currentSelection = 0;
 
@@ -43,11 +41,21 @@ enum AppState {
 };
 volatile AppState appState = STATE_MAIN_MENU;
 
+// ---------- Filler Status ----------
+enum FillerState {
+  STATE_WAITING_BOTTLE,
+  STATE_FILLING_BOTTLE,
+  STATE_FILLED_BOTTLE,
+};
+volatile FillerState fillerState = STATE_WAITING_BOTTLE;
+
+
 // ---------- FreeRTOS ----------
 TaskHandle_t taskButtonsHandle = nullptr;
 TaskHandle_t taskMenuHandle = nullptr;
 TaskHandle_t taskDisplayHandle = nullptr;
 TaskHandle_t taskHX711Handle = nullptr;
+TaskHandle_t taskFillerHandle = nullptr;
 
 QueueHandle_t buttonQueue;  // events boutons -> menu
 
@@ -102,6 +110,46 @@ static inline void drawScreen(const char* title, uint16_t color) {
   image_in_memory.pushSprite(0, 0);
 }
 
+
+static inline void drawFilller() {
+  M5.Display.fillScreen(TFT_WHITE);
+  M5.Display.setTextDatum(middle_center);
+  M5.Display.setTextColor(TFT_RED, TFT_WHITE);
+  M5.Display.setFont(&fonts::Font4);
+
+  M5.Display.drawString("Detecting Bottle", M5.Display.width() / 2, M5.Display.height() / 2);
+  LGFX_Button button_stop;
+
+  int button_height = 40;
+  int button_width = M5.Display.width();
+  button_stop.initButtonUL(&M5.Display, 0, M5.Display.height() - button_height, button_width, button_height, TFT_RED, TFT_BEER, TFT_BLACK, "STOP", 1, 1);
+  button_stop.drawButton();
+}
+
+static inline void drawFilling() {
+  image_in_memory.fillScreen(TFT_WHITE);
+  image_in_memory.setFont(&fonts::FreeMonoBold24pt7b);
+  image_in_memory.setTextSize(1);
+
+  image_in_memory.setTextColor(TFT_BLUE);
+  image_in_memory.drawString(bottle_size, 5, 30);
+
+
+  bottle_position_x = 220, bottle_position_y = 20;
+  bottle_scaling = 2.7;
+
+  LGFX_Button button_stop;
+
+  int button_height = 40;
+  int button_width = M5.Display.width();
+  button_stop.initButtonUL(&image_in_memory, 0, M5.Display.height() - button_height, button_width, button_height, TFT_RED, TFT_BEER, TFT_BLACK, "STOP", 1, 1);
+  button_stop.drawButton();
+
+  draw_beer(bottle_position_x, bottle_position_y, abs(currentWeight - bottle_weight), mg_to_fill, TFT_BEER, TFT_BLACK, true);
+  image_in_memory.pushSprite(0, 0);
+}
+
+
 static inline void updateValue(float value, uint16_t background_color) {
   // value_canvas.setColorDepth(16);
   value_canvas.createSprite(100, 50);
@@ -117,8 +165,6 @@ static inline void updateValue(float value, uint16_t background_color) {
   value_canvas.pushSprite((M5.Display.width() / 2) - 10, (M5.Display.height() / 2) - 10);
   value_canvas.deleteSprite();
 }
-
-
 
 static inline void drawSettingMenu(const char* title, float value, uint16_t background_color) {
   M5.Display.fillScreen(background_color);
@@ -137,10 +183,10 @@ static inline void drawSettingMenu(const char* title, float value, uint16_t back
   int button_height = 40;
   int button_width = M5.Display.width() / 3;
 
-
   LGFX_Button button_save;
   LGFX_Button button_decrease;
   LGFX_Button button_increase;
+
 
   button_decrease.initButtonUL(&M5.Display, 0, M5.Display.height() - button_height, button_width, button_height, TFT_RED, TFT_BEER, TFT_BLACK, "-", 1, 1);
   button_decrease.drawButton();
@@ -212,6 +258,41 @@ void taskButtons(void*) {
   }
 }
 
+void taskFiller(void*) {
+  for (;;) {
+    if (fillerState == STATE_WAITING_BOTTLE) {
+      // a new bottle is on the scale
+      // Lets find which kind
+      if (fabs(moving_average - lastDrawnAverage) > 0.1f) {
+
+        if ((moving_average > 190) && (moving_average < 265)) {
+          if (debug_print) Serial.println("33cl detected");
+          // display_detected_bottle("330");
+          mg_to_fill = 325.0 * beer_gravity;
+          bottle_size = "33cl";
+          // 50
+        } else if ((moving_average > 265) && (moving_average < 430)) {
+          if (debug_print) Serial.println("50cl detected");
+          // display_detected_bottle("500");
+          mg_to_fill = 495.0 * beer_gravity;
+          bottle_size = "50cl";
+          // 75
+        } else if ((moving_average > 500) && (moving_average < 600)) {
+          if (debug_print) Serial.println("75cl detected");
+          // display_detected_bottle("750");
+          bottle_size = "75cl";
+          mg_to_fill = 745.0 * beer_gravity;
+        }
+        bottle_weight = moving_average;
+        fillerState = STATE_FILLING_BOTTLE;
+      }
+    } else if (fillerState == STATE_FILLING_BOTTLE) {
+    } else if (fillerState == STATE_FILLED_BOTTLE) {
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
 void taskMenu(void*) {
   ButtonEvent evt;
   for (;;) {
@@ -219,15 +300,15 @@ void taskMenu(void*) {
       if (appState == STATE_MAIN_MENU) {
         switch (evt) {
           case BTN_A:
+            if (debug_print) Serial.println("BTN_A");
             currentSelection = (currentSelection - 1 + menuSize) % menuSize;
-            Serial.printf("[Menu] A -> %s\n", menuItems[currentSelection]);
             break;
           case BTN_C:
+            if (debug_print) Serial.println("BTN_C");
             currentSelection = (currentSelection + 1) % menuSize;
-            Serial.printf("[Menu] C -> %s\n", menuItems[currentSelection]);
             break;
           case BTN_B:
-            Serial.printf("[Menu] B -> Ouvrir: %s\n", menuItems[currentSelection]);
+            if (debug_print) Serial.println("BTN_B");
             switch (currentSelection) {
               case 0:
                 appState = STATE_FILLER;
@@ -259,7 +340,7 @@ void taskMenu(void*) {
             if (beer_gravity != saved_beer_gravity) {
               preferences.putFloat("beer_gravity", beer_gravity);
               saved_beer_gravity = beer_gravity;
-              Serial.println("Nouvelle beer_gravity => sauvegarde");
+              // Serial.println("Nouvelle beer_gravity => sauvegarde");
             }
             appState = STATE_MAIN_MENU;
             break;
@@ -293,9 +374,15 @@ void taskMenu(void*) {
             appState = STATE_MAIN_MENU;
             break;
         }
+      } else if (appState == STATE_FILLER) {
+        if ((evt == BTN_A) || (evt == BTN_B) || (evt == BTN_C)) {
+          fillerState = STATE_WAITING_BOTTLE;
+          // Stop the pump
+          appState = STATE_MAIN_MENU;
+        }
       } else {
         if (evt == BTN_B) {
-          Serial.println("[Screen] back to main menu");
+          // Serial.println("[Screen] back to main menu");
           if (appState == STATE_TARE) {
             scale.tare();
           }
@@ -309,8 +396,8 @@ void taskMenu(void*) {
 void taskDisplay(void*) {
   AppState lastState = (AppState)-1;
   int lastSelection = -1;
-  float lastDrawnWeight = -99999.0f;   // impossible value to force first draw
-  float lastDrawnAverage = -99999.0f;  // impossible value to force first draw
+
+  FillerState lastFillerState = (FillerState)-1;
 
   for (;;) {
     bool needRedraw = false;
@@ -319,7 +406,7 @@ void taskDisplay(void*) {
       needRedraw = true;
       switch (appState) {
         case STATE_MAIN_MENU: drawMenu(); break;
-        case STATE_FILLER: intro(); break;
+        case STATE_FILLER: drawFilller(); break;
         case STATE_GRAVITY: drawSettingMenu("Final Gravity", beer_gravity, TFT_BLACK); break;
         case STATE_TARE: drawScreen("Tare", TFT_NAVY); break;
         case STATE_CALIBRATION:
@@ -339,6 +426,21 @@ void taskDisplay(void*) {
         drawWeight();
         lastDrawnWeight = currentWeight;
         lastDrawnAverage = moving_average;
+      }
+    }
+
+    if ((fillerState != lastFillerState) && (appState == STATE_FILLER)) {
+      needRedraw = true;
+      switch (fillerState) {
+        case STATE_WAITING_BOTTLE:
+          drawFilller();
+          break;
+STATE_FILLING_BOTTLE:
+          drawFilling();
+          break;
+STATE_FILLED_BOTTLE:
+          // drawFinish();
+          break;
       }
     }
 
@@ -383,6 +485,9 @@ void setup() {
   }
   moving_average = 0.0;
   moving_average_sum = 0.0;
+  lastDrawnWeight = -99999.0f;   // impossible value to force first draw
+  lastDrawnAverage = -99999.0f;  // impossible value to force first draw
+
 
   // HX711 INIT
   scale.begin(dataPin, clockPin);
@@ -415,14 +520,15 @@ void setup() {
   }
 
   // Intro animée
-  //intro();
+  // intro();
 
   buttonQueue = xQueueCreate(10, sizeof(ButtonEvent));
 
-  xTaskCreatePinnedToCore(taskButtons, "TaskButtons", 4096, nullptr, 3, &taskButtonsHandle, 0);
+  xTaskCreatePinnedToCore(taskButtons, "TaskButtons", 4096, nullptr, 2, &taskButtonsHandle, 0);
   xTaskCreatePinnedToCore(taskMenu, "TaskMenu", 4096, nullptr, 1, &taskMenuHandle, 1);
   xTaskCreatePinnedToCore(taskDisplay, "TaskDisplay", 4096, nullptr, 2, &taskDisplayHandle, 1);
   xTaskCreatePinnedToCore(taskHX711, "HX711_Task", 4096, nullptr, 3, &taskHX711Handle, 1);
+  xTaskCreatePinnedToCore(taskFiller, "Filler_Task", 4096, nullptr, 3, &taskFillerHandle, 1);
 
   Serial.println("Systeme lance.");
 }
