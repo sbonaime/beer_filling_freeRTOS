@@ -1,3 +1,5 @@
+// Couleurs 8bits
+// https://www.rapidtables.com/web/color/RGB_Color.html
 float saved_beer_gravity;
 float saved_scale_calibration_weight;
 
@@ -31,6 +33,7 @@ uint32_t transparent_color = TFT_TRANSPARENT;
 // Fifo
 #define MAX_FIFO_SIZE 10
 float moving_average;
+float last_moving_average;
 float moving_average_sum;
 
 float lastDrawnWeight;

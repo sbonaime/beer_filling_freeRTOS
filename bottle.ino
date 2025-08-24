@@ -123,29 +123,6 @@ void draw_beer(int x_position, int y_position, int poids_actuel, int poids_final
       } else {
         beer_in_memory.pushSprite(&image_in_memory, x_position, y_position, transparent_color);
       }
-
-      // if (beer) {
-      //   // We put the bottle at the right place
-      //   beer_in_memory.setPivot(bottle_position_x + (D1 / 2) + 5, bottle_position_y + H2 + H1 - 15);  // Set pivot to middle of TFT screen
-
-      //   // Delete it to free memory
-      //   beer_in_memory.deleteSprite();
-
-      //   old_beer_height = new_beer_height;
-
-      //   // BEER Sprite
-      //   beer_in_memory.setColorDepth(1);
-      //   // beer_in_memory.createSprite(IWIDTH, IHEIGHT);
-      //   beer_in_memory.createSprite(H1, D1);
-      //   beer_in_memory.setFont(&fonts::Font4);
-      //   // Fill it with black (this will be the transparent colour this time)
-      //   beer_in_memory.fillSprite(TFT_BLACK);
-
-      //   beer_in_memory.setTextColor(TFT_WHITE);
-      //   beer_in_memory.setTextDatum(ML_DATUM);
-      //   beer_in_memory.drawString("BEER", 20, D1 / 2, 4);  // Plot text, font 4, in Sprite at 30, 15
-      //   beer_in_memory.pushRotated(270, TFT_BLACK);
-      // }
     }
   }
 }
