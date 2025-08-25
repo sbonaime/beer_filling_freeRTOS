@@ -31,10 +31,18 @@ uint32_t transparent_color = TFT_TRANSPARENT;
 
 
 // Fifo
-#define MAX_FIFO_SIZE 10
 float moving_average;
 float last_moving_average;
 float moving_average_sum;
 
 float lastDrawnWeight;
 float lastDrawnAverage;
+
+
+constexpr int MAX_FIFO_SIZE = 20;
+constexpr float BOTTLE_33CL_MIN = 190.0f;
+constexpr float BOTTLE_33CL_MAX = 265.0f;
+constexpr float BOTTLE_50CL_MIN = 265.0f;
+constexpr float BOTTLE_50CL_MAX = 430.0f;
+constexpr float BOTTLE_75CL_MIN = 500.0f;
+constexpr float BOTTLE_75CL_MAX = 600.0f;

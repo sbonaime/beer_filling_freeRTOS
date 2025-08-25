@@ -1,6 +1,6 @@
 #include <M5Unified.h>
 #include <M5GFX.h>
-#include "bottle.h"
+#include "bottle_filler.h"
 #include <HX711.h>
 #include <Preferences.h>
 #include <FIFObuf.h>
@@ -14,8 +14,8 @@ const uint8_t clockPin = 17;
 HX711 scale;
 QueueHandle_t weightQueue;
 float currentWeight = 0;
-bool debug_print = true;
-// bool debug_print = false;
+// bool debug_print = true;
+bool debug_print = false;
 
 // FIFO object for float
 FIFObuf<float> fifo_scale(MAX_FIFO_SIZE);
@@ -74,12 +74,147 @@ static inline void drawMenu() {
   int menu_item_height = 45;
   for (int i = 0; i < menuSize; i++) {
     image_in_memory.setTextColor((i == currentSelection) ? TFT_YELLOW : TFT_WHITE, TFT_BLACK);
-    image_in_memory.drawString(menuItems[i], 10, 30 + menu_item_height + i * menu_item_height);
+    image_in_memory.drawString(menuItems[i], 10, 20 + menu_item_height + i * menu_item_height);
   }
   bottle_scaling = 1;
-  draw_beer(280, 50, 33, 33, TFT_BEER, TFT_WHITE, true);
+  beer_in_memory.createSprite(1 + 24 * bottle_scaling, 1 + bottle_scaling * (72));
+
+  draw_beer_bottle(280, 50, 33, 33, TFT_BEER, 0x80, true);
   image_in_memory.pushSprite(0, 0);
   drawWeight();
+}
+
+void intro() {
+
+  // MAGENTA => VERT
+  // FFFF => bleu
+  // 000 => noir
+  // 0F0 => bleu
+  // FFF => bleu fort
+  // TFT_NAVY => NOIR
+
+  image_in_memory.fillScreen(TFT_WHITE);
+
+  image_in_memory.setFont(&fonts::FreeMonoBold24pt7b);
+  image_in_memory.setTextSize(1);
+
+  image_in_memory.setTextColor(TFT_BLUE);
+  image_in_memory.setCursor(5, 30);
+  image_in_memory.println("BOTTLE");
+
+  image_in_memory.setTextColor(TFT_RED);
+  image_in_memory.setCursor(5, 100);
+  image_in_memory.println("FILLER");
+  image_in_memory.pushSprite(0, 0);
+
+
+  bottle_position_x = 250, bottle_position_y = 100;
+  bottle_scaling = 1.7;
+
+
+  beer_in_memory.createSprite(1 + 24 * bottle_scaling, 1 + bottle_scaling * (72));
+
+  // Remplissage virtuel
+  for (int i = 0; i < 100; i++) {
+    draw_beer_bottle(bottle_position_x, bottle_position_y, i, 100, TFT_BEER, TFT_BLACK, false);
+    delay(20);
+  }
+  delay(1000);
+
+  // Clear intro screen
+  image_in_memory.fillScreen(TFT_BLACK);
+  image_in_memory.pushSprite(0, 0);
+  appState = STATE_MAIN_MENU;
+  drawMenu();
+}
+
+void draw_beer_bottle(int x_position, int y_position, int poids_actuel, int poids_final, uint32_t liquid_color, uint32_t bottle_color, boolean menu) {
+  //                  A   D2    B
+  //             0  b ----------
+  //                  |        |
+  //         H2       |        |
+  //                H |        | C
+  //                 /          \
+  //         HG     /            \
+  //               /              \
+  //            G |                | D
+  //              |                |
+  //         H1   |                |
+  //              |                |
+  //              |                |
+  //            F  ---------------- E
+  //                      D1
+
+
+  // x_sprite_dimension = 1+ 24 * bottle_scaling
+  // y_sprite_dimension = 1+  bottle_scaling  * ( 72);
+  // bottle_scaling = 1 -> sprite de 25x73
+  // bottle_scaling = 1.7 -> sprite de 41x124
+  // bottle_scaling = 2.5 -> sprite de 61x181
+
+
+  D1 = 24 * bottle_scaling;
+  D2 = 9 * bottle_scaling;
+  H1 = 45 * bottle_scaling;
+  HG = 18 * bottle_scaling;
+  H2 = 9 * bottle_scaling;
+
+  b = (D1 - D2) / 2, ax = b, ay = 0, bx = b + D2, by = 0, cx = bx, cy = H2, dx = D1;
+  dy = H2 + HG, ex = D1, ey = H1 + HG + H2, fx = 0, fy = H1 + HG + H2, gx = 0, gy = H2 + HG, hx = ax, hy = H2;
+
+
+  if ((poids_actuel <= poids_final) && (poids_actuel >= 0)) {
+    new_beer_height = poids_actuel * (H1 + HG) / poids_final;
+
+    if (new_beer_height >= old_beer_height) {
+      // Create a 8 bit sprite 80 pixels wide, 35 high (2800 bytes of RAM needed)
+
+      // beer_in_memory.createSprite(D1 + 1, H1 + HG + H2 + 1);
+
+      // Fill it with black (this will be the transparent colour this time)
+      beer_in_memory.fillSprite(transparent_color);
+
+      // beer rectangle
+      beer_in_memory.fillRect(0, H1 + H2 + HG - new_beer_height, D1, new_beer_height, liquid_color);
+
+      // Dessin de la forme negative de la bouteille
+      beer_in_memory.fillRect(0, 0, ax, hy, transparent_color);
+      beer_in_memory.fillRect(bx, by, b + 2, hy, transparent_color);
+
+      beer_in_memory.fillTriangle(0, hy, gx, gy, hx, hy, transparent_color);
+      beer_in_memory.fillTriangle(cx, cy, dx, dy, ex, cy, transparent_color);
+
+      // Bouteille
+      beer_in_memory.drawLine(ax + 1, ay, bx - 1, by, bottle_color);
+      beer_in_memory.drawLine(bx - 1, by, cx - 1, cy, bottle_color);
+      beer_in_memory.drawLine(cx - 1, cy, dx - 1, dy, bottle_color);
+      beer_in_memory.drawLine(dx - 1, dy, ex - 1, ey, bottle_color);
+      beer_in_memory.drawLine(ex, ey - 1, fx + 1, fy - 1, bottle_color);
+      beer_in_memory.drawLine(fx + 1, fy, gx + 1, gy, bottle_color);
+      beer_in_memory.drawLine(gx + 1, gy, hx, hy, bottle_color);
+      beer_in_memory.drawLine(hx, hy, ax, ay, bottle_color);
+
+      // double ligne
+      beer_in_memory.drawLine(ax + 1, ay + 1, bx - 1, by + 1, bottle_color);
+      beer_in_memory.drawLine(bx, by - 1, cx, cy, bottle_color);
+      beer_in_memory.drawLine(cx, cy, dx, dy, bottle_color);
+      beer_in_memory.drawLine(dx, dy, ex, ey + 1, bottle_color);
+      beer_in_memory.drawLine(ex, ey, fx + 1, fy, bottle_color);
+      beer_in_memory.drawLine(fx, fy + 1, gx, gy, bottle_color);
+      beer_in_memory.drawLine(gx, gy, hx - 1, hy, bottle_color);
+      beer_in_memory.drawLine(hx - 1, hy, ax - 1, ay, bottle_color);
+
+
+
+      // Push sprite to TFT screen CGRAM at coordinate x,y (top left corner)
+      // Specify what colour is to be treated as transparent.
+      if (menu == false) {
+        beer_in_memory.pushSprite(x_position, y_position, transparent_color);
+      } else {
+        beer_in_memory.pushSprite(&image_in_memory, x_position, y_position, transparent_color);
+      }
+    }
+  }
 }
 
 static inline void drawWeight() {
@@ -118,8 +253,11 @@ static inline void drawFilller() {
   M5.Display.setTextDatum(middle_center);
   M5.Display.setTextColor(TFT_RED, TFT_WHITE);
   M5.Display.setFont(&fonts::FreeMonoBold24pt7b);
+  M5.Display.setTextSize(1);
 
-  M5.Display.drawString("Detecting Bottle", M5.Display.width() / 2, M5.Display.height() / 2, &fonts::Font4);
+  M5.Display.drawString("Detecting", M5.Display.width() / 2, M5.Display.height() / 2 - 50, &fonts::FreeMonoBold24pt7b);
+  M5.Display.drawString("Bottle", M5.Display.width() / 2, M5.Display.height() / 2 - 10, &fonts::FreeMonoBold24pt7b);
+
   LGFX_Button button_stop;
 
   int button_height = 40;
@@ -148,8 +286,9 @@ static inline void drawFilling() {
   int button_width = M5.Display.width();
   button_stop.initButtonUL(&image_in_memory, 0, M5.Display.height() - button_height, button_width, button_height, TFT_RED, TFT_BEER, TFT_BLACK, "STOP", 1, 1);
   button_stop.drawButton();
+  beer_in_memory.createSprite(1 + 24 * bottle_scaling, 1 + bottle_scaling * (72));
 
-  draw_beer(bottle_position_x, bottle_position_y, abs(currentWeight - bottle_weight), mg_to_fill, TFT_BEER, TFT_BLACK, true);
+  draw_beer_bottle(bottle_position_x, bottle_position_y, abs(currentWeight - bottle_weight), mg_to_fill, TFT_BEER, TFT_BLACK, true);
   image_in_memory.pushSprite(0, 0);
 }
 
@@ -157,13 +296,10 @@ static inline void drawFinish() {
   if (debug_print) Serial.println("drawFinish start ");
 
   M5.Display.fillScreen(TFT_WHITE);
-  // image_in_memory.setFont(&fonts::FreeMonoBold24pt7b);
   M5.Display.setTextSize(1);
   M5.Display.setTextColor(TFT_RED);
   M5.Display.setTextDatum(TL_DATUM);
 
-  // M5.Display.setFont(&fonts::Font4);
-  // M5.Display.drawString("Finished ! ", M5.Display.width() / 2, M5.Display.height() / 2);
   M5.Display.drawString("Finish", 5, 30, &fonts::FreeMonoBold24pt7b);
   M5.Display.setFont(&fonts::FreeMonoBold24pt7b);
 
@@ -177,18 +313,17 @@ static inline void drawFinish() {
   int button_width = M5.Display.width();
   button_stop.initButtonUL(&M5.Display, 0, M5.Display.height() - button_height, button_width, button_height, TFT_RED, TFT_BEER, TFT_BLACK, "STOP", 1, 1);
   button_stop.drawButton();
+  beer_in_memory.createSprite(1 + 24 * bottle_scaling, 1 + bottle_scaling * (72));
 
   // Remplissage virtuel
   for (int i = 0; i < 100; i++) {
-    draw_beer(bottle_position_x, bottle_position_y, i, 100, 0xFF, TFT_BLACK, false);
+    draw_beer_bottle(bottle_position_x, bottle_position_y, i, 100, 0xFF, TFT_BLACK, false);
     delay(10);
   }
 }
 
 
 static inline void updateValue(float value, uint16_t background_color) {
-  // value_canvas.setColorDepth(16);
-  value_canvas.createSprite(100, 50);
   value_canvas.fillScreen(background_color);
   value_canvas.setTextColor(TFT_WHITE, background_color);
   value_canvas.setFont(&fonts::Font4);
@@ -199,7 +334,6 @@ static inline void updateValue(float value, uint16_t background_color) {
     value_canvas.drawNumber(value, 0, 0);
   }
   value_canvas.pushSprite((M5.Display.width() / 2) - 10, (M5.Display.height() / 2) - 10);
-  value_canvas.deleteSprite();
 }
 
 static inline void drawSettingMenu(const char* title, float value, uint16_t background_color) {
@@ -303,7 +437,7 @@ void taskFiller(void*) {
       // a new bottle is on the scale
       // Lets find which kind
       if ((fabs(moving_average - last_moving_average) < 0.1f) && (fabs(moving_average - currentWeight) < 0.1f)) {
-        if ((moving_average > 190) && (moving_average < 265)) {
+        if ((moving_average > BOTTLE_33CL_MIN) && (moving_average < BOTTLE_33CL_MAX)) {
           if (debug_print) Serial.println("33cl detected");
           // display_detected_bottle("330");
           bottle_size = "33cl";
@@ -311,7 +445,7 @@ void taskFiller(void*) {
           bottle_weight = moving_average;
           fillerState = STATE_FILLING_BOTTLE;
           // 50
-        } else if ((moving_average > 265) && (moving_average < 430)) {
+        } else if ((moving_average > BOTTLE_50CL_MIN) && (moving_average < BOTTLE_50CL_MAX)) {
           if (debug_print) Serial.println("50cl detected");
           // display_detected_bottle("500");
           bottle_size = "50cl";
@@ -319,7 +453,7 @@ void taskFiller(void*) {
           bottle_weight = moving_average;
           fillerState = STATE_FILLING_BOTTLE;
           // 75
-        } else if ((moving_average > 500) && (moving_average < 600)) {
+        } else if ((moving_average > BOTTLE_75CL_MIN) && (moving_average < BOTTLE_75CL_MAX)) {
           if (debug_print) Serial.println("75cl detected");
           // display_detected_bottle("750");
           bottle_size = "75cl";
@@ -493,11 +627,7 @@ void taskDisplay(void*) {
     }
 
     // Only delay if something was redrawn
-    if (needRedraw) {
-      vTaskDelay(pdMS_TO_TICKS(40));
-    } else {
-      vTaskDelay(pdMS_TO_TICKS(10));
-    }
+    vTaskDelay(pdMS_TO_TICKS(needRedraw ? 40 : 10));
   }
 }
 // ---------- Setup / Loop ----------
@@ -513,19 +643,12 @@ void setup() {
 
   // Sprite 8 bits pour éviter 0x0
   image_in_memory.setColorDepth(8);
-
-  if (!image_in_memory.createSprite(M5.Display.width(), M5.Display.height())) {
-    Serial.println("Erreur: Impossible de créer le sprite image_in_memory !");
-  } else {
-    Serial.printf("Sprite OK: %dx%d\n", image_in_memory.width(), image_in_memory.height());
-  }
-
+  image_in_memory.createSprite(M5.Display.width(), M5.Display.height());
   weight_in_memory.setColorDepth(8);
-  if (!weight_in_memory.createSprite(320, 24)) {
-    Serial.println("Erreur: Impossible de créer le sprite weight_in_memory !");
-  } else {
-    Serial.println("Sprite weight_in_memory OK");
-  }
+  weight_in_memory.createSprite(320, 24);
+  value_canvas.setColorDepth(8);
+  value_canvas.createSprite(100, 50);
+
 
   // INIT FIFO buffer
   for (int i = 0; i < MAX_FIFO_SIZE; ++i) {
@@ -580,6 +703,7 @@ void setup() {
 
   Serial.println("Starting Filler Machine");
 }
+
 
 void loop() {
   // Tout est géré par FreeRTOS
