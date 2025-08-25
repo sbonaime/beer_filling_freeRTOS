@@ -444,6 +444,7 @@ void taskFiller(void*) {
           mg_to_fill = 325.0 * beer_gravity;
           bottle_weight = moving_average;
           fillerState = STATE_FILLING_BOTTLE;
+          fill_percentage = 0;
           // 50
         } else if ((moving_average > BOTTLE_50CL_MIN) && (moving_average < BOTTLE_50CL_MAX)) {
           if (debug_print) Serial.println("50cl detected");
@@ -452,6 +453,7 @@ void taskFiller(void*) {
           mg_to_fill = 495.0 * beer_gravity;
           bottle_weight = moving_average;
           fillerState = STATE_FILLING_BOTTLE;
+          fill_percentage = 0;
           // 75
         } else if ((moving_average > BOTTLE_75CL_MIN) && (moving_average < BOTTLE_75CL_MAX)) {
           if (debug_print) Serial.println("75cl detected");
@@ -460,12 +462,23 @@ void taskFiller(void*) {
           mg_to_fill = 745.0 * beer_gravity;
           bottle_weight = moving_average;
           fillerState = STATE_FILLING_BOTTLE;
+          fill_percentage = 0;
         }
       }
     } else if ((fillerState == STATE_FILLING_BOTTLE) && (appState == STATE_FILLER)) {
       drawFilling();
       if (debug_print) Serial.println("Pump On in taskFiller");
+      fill_percentage = int(abs(currentWeight - bottle_weight) * 100 / mg_to_fill);
 
+      // Smooth start
+      if (fill_percentage < 5) setPumpPWMpercent(10);
+
+      // Full spedd
+      if ((fill_percentage > 5) && (fill_percentage < 85)) setPumpPWMpercent(100);
+
+      // Smooth finish
+      if (fill_percentage > 85) setPumpPWMpercent(15);
+      if (fill_percentage > 95) setPumpPWMpercent(5);
       // Bottle is filled
       if (currentWeight >= (bottle_weight + mg_to_fill)) {
         fillerState = STATE_FILLED_BOTTLE;
@@ -479,7 +492,6 @@ void taskFiller(void*) {
       bottle_filled = false;
       drawFilller();
     }
-
     if (bottle_filled) {
       vTaskDelay(pdMS_TO_TICKS(300));
     } else {
@@ -575,6 +587,7 @@ void taskMenu(void*) {
           appState = STATE_MAIN_MENU;
           fillerState = STATE_START;
           // Stop the pump
+          setPumpPWMpercent(0);
         }
       } else {
         if (evt == BTN_B) {
@@ -630,6 +643,16 @@ void taskDisplay(void*) {
     vTaskDelay(pdMS_TO_TICKS(needRedraw ? 40 : 10));
   }
 }
+
+// Duty cycle to control the pump
+void setPumpPWMpercent(float percent) {
+  int duty = (int)(percent / 100.0 * ((1 << pwmResolution) - 1));
+  ledcWriteChannel(pwmChannel, duty);
+  // ou
+  // ledcWrite(uint8_t pin, uint32_t duty);
+}
+
+
 // ---------- Setup / Loop ----------
 void setup() {
   Serial.begin(115200);
@@ -693,13 +716,18 @@ void setup() {
   // Intro animée
   // intro();
 
-  buttonQueue = xQueueCreate(10, sizeof(ButtonEvent));
+  // PWM configuration
+  ledcAttachChannel(pwmPin, pwmFreq, pwmResolution, pwmChannel);
+  // delay(100);
 
+
+  buttonQueue = xQueueCreate(10, sizeof(ButtonEvent));
   xTaskCreatePinnedToCore(taskButtons, "TaskButtons", 4096, nullptr, 2, &taskButtonsHandle, 0);
   xTaskCreatePinnedToCore(taskMenu, "TaskMenu", 4096, nullptr, 1, &taskMenuHandle, 1);
   xTaskCreatePinnedToCore(taskDisplay, "TaskDisplay", 4096, nullptr, 2, &taskDisplayHandle, 1);
   xTaskCreatePinnedToCore(taskHX711, "HX711_Task", 4096, nullptr, 3, &taskHX711Handle, 1);
   xTaskCreatePinnedToCore(taskFiller, "Filler_Task", 4096, nullptr, 3, &taskFillerHandle, 1);
+  setPumpPWMpercent(0);
 
   Serial.println("Starting Filler Machine");
 }

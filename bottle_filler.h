@@ -11,6 +11,13 @@ float bottle_weight;
 float ml_to_fill;
 String bottle_size;
 float old_beer_height, new_beer_height;
+int fill_percentage;
+
+// PWM parameters
+const int pwmPin = 21;     // GPIO de sortie (ex: 26, 25, 19... éviter 34-39 car entrée seule)
+const int pwmChannel = 0;  // Canal PWM (0-15)
+const int pwmFreq = 10000; // Fréquence : 10 kHz
+const int pwmResolution = 10; // Résolution : 10 bits (0-1023)
 
 
 
