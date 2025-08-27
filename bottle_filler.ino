@@ -581,19 +581,28 @@ void taskMenu(void*) {
       } else if (appState == STATE_CALIBRATION) {
         switch (evt) {
           case BTN_A:
-            scale_calibration_weight = scale_calibration_weight - 1;
-            updateValue(scale_calibration_weight, TFT_NAVY);
+            calib_weight = calib_weight - 1;
+            updateValue(calib_weight, TFT_BLACK);
             break;
           case BTN_C:
-            scale_calibration_weight = scale_calibration_weight + 1;
-            updateValue(scale_calibration_weight, TFT_NAVY);
+            calib_weight = calib_weight + 1;
+            updateValue(calib_weight, TFT_BLACK);
             break;
           case BTN_B:
-            // Do the calibration with scale_calibration_weight
-            if (scale_calibration_weight != saved_scale_calibration_weight) {
-              saved_scale_calibration_weight = scale_calibration_weight;
-              Serial.println("Nouvelle scale_calibration_weight => sauvegarde");
-              scale.calibrate_scale(scale_calibration_weight, 10);
+
+            preferences.putFloat("beer_gravity", beer_gravity);
+            saved_beer_gravity = beer_gravity;
+
+
+            // Do the calibration with calib_weight
+            if (calib_weight != saved_calib_weight) {
+              // Serial.print("calib_weight : ");
+              // Serial.println(calib_weight);
+
+              // Serial.print("saved_calib_weight : ");
+              // Serial.println(saved_calib_weight);
+
+              scale.calibrate_scale(calib_weight, 5);
 
               // Get calibration parameters
               scale_factor = scale.get_scale();
@@ -602,7 +611,10 @@ void taskMenu(void*) {
               // Save values in EEPROM
               preferences.putFloat("scale_offset", scale_offset);
               preferences.putFloat("scale_factor", scale_factor);
-              preferences.putFloat("scale_calibration_weight", scale_calibration_weight);
+              preferences.putInt("calib_weight", calib_weight);
+
+              Serial.println("Nouvelle calib_weight => sauvegarde");
+              saved_calib_weight = calib_weight;
             }
             appState = STATE_MAIN_MENU;
             break;
@@ -618,6 +630,8 @@ void taskMenu(void*) {
         if (evt == BTN_B) {
           // Serial.println("[Screen] back to main menu");
           if (appState == STATE_TARE) {
+            scale.set_scale(scale_factor);
+            scale.set_offset(scale_offset);
             scale.tare();
           }
           appState = STATE_MAIN_MENU;
@@ -644,9 +658,9 @@ void taskDisplay(void*) {
           break;
         case STATE_FILLER: drawFilller(); break;
         case STATE_GRAVITY: drawSettingMenu("Final Gravity", beer_gravity, TFT_BLACK); break;
-        case STATE_TARE: drawScreen("Tare", TFT_NAVY); break;
+        case STATE_TARE: drawScreen("Tare", TFT_BLACK); break;
         case STATE_CALIBRATION:
-          drawSettingMenu("Calibration Weight", scale_calibration_weight, TFT_NAVY);
+          drawSettingMenu("Calibration Weight", calib_weight, TFT_BLACK);
           break;
       }
       lastState = appState;
@@ -716,14 +730,15 @@ void setup() {
   // Serial.println(scale.get_units(10));
   delay(100);
 
+  // openpreferences in read / write
   preferences.begin("filler", false);
   scale_offset = preferences.getFloat("scale_offset", -954218);
   scale_factor = preferences.getFloat("scale_factor", -1121.379150);
-  saved_scale_calibration_weight = preferences.getFloat("scale_calibration_weight", 180);
+  saved_calib_weight = preferences.getInt("calib_weight", 180);
   saved_beer_gravity = preferences.getFloat("beer_gravity", 1.015);
 
 
-  scale_calibration_weight = saved_scale_calibration_weight;
+  calib_weight = saved_calib_weight;
   beer_gravity = saved_beer_gravity;
 
   scale.set_scale(scale_factor);

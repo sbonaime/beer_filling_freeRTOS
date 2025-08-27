@@ -1,12 +1,12 @@
 // Couleurs 8bits
 // https://www.rapidtables.com/web/color/RGB_Color.html
 float saved_beer_gravity;
-float saved_scale_calibration_weight;
+int saved_calib_weight;
 
 float beer_gravity;
 float scale_offset;
 float scale_factor;
-float scale_calibration_weight;
+int calib_weight;
 float bottle_weight;
 float ml_to_fill;
 String bottle_size;
