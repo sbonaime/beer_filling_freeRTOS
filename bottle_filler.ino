@@ -4,8 +4,18 @@
 #include <HX711.h>
 #include <Preferences.h>
 #include <FIFObuf.h>
+#include <SimpleKalmanFilter.h>
 
 Preferences preferences;
+
+// Kalman filter
+/*
+  SimpleKalmanFilter(e_mea, e_est, q);
+  e_mea: Measurement Uncertainty
+  e_est: Estimation Uncertainty
+  q: Process Noise
+*/
+SimpleKalmanFilter kaman_filter = SimpleKalmanFilter(.1, .1, 0.1);
 
 
 //  HX711
@@ -384,13 +394,17 @@ void taskHX711(void*) {
     if (scale.is_ready()) {
       float weight = scale.get_units(1);
 
+      // Kalman filter
+      float kf_weight = kaman_filter.updateEstimate(weight);
+
+
       if (weightQueue != NULL) {
-        xQueueSend(weightQueue, &weight, 0);
+        xQueueSend(weightQueue, &kf_weight, 0);
 
         // Fifo and moving average
         moving_average_sum -= fifo_scale.pop();
-        fifo_scale.push(weight);
-        moving_average_sum += weight;
+        fifo_scale.push(kf_weight);
+        moving_average_sum += kf_weight;
         last_moving_average = moving_average;
         moving_average = moving_average_sum / MAX_FIFO_SIZE;
       }
@@ -435,6 +449,8 @@ void taskFiller(void*) {
 
     if ((fillerState == STATE_WAITING_BOTTLE) && (appState == STATE_FILLER)) {
       // a new bottle is on the scale
+      setPumpPWMpercent(0);
+      ledcWrite(pwmPin, 0);
       // Lets find which kind
       if ((fabs(moving_average - last_moving_average) < 0.1f) && (fabs(moving_average - currentWeight) < 0.1f)) {
         if ((moving_average > BOTTLE_33CL_MIN) && (moving_average < BOTTLE_33CL_MAX)) {
@@ -445,6 +461,7 @@ void taskFiller(void*) {
           bottle_weight = moving_average;
           fillerState = STATE_FILLING_BOTTLE;
           fill_percentage = 0;
+          last_fill_percentage = -99999;
           // 50
         } else if ((moving_average > BOTTLE_50CL_MIN) && (moving_average < BOTTLE_50CL_MAX)) {
           if (debug_print) Serial.println("50cl detected");
@@ -454,6 +471,7 @@ void taskFiller(void*) {
           bottle_weight = moving_average;
           fillerState = STATE_FILLING_BOTTLE;
           fill_percentage = 0;
+          last_fill_percentage = -99999;
           // 75
         } else if ((moving_average > BOTTLE_75CL_MIN) && (moving_average < BOTTLE_75CL_MAX)) {
           if (debug_print) Serial.println("75cl detected");
@@ -463,31 +481,38 @@ void taskFiller(void*) {
           bottle_weight = moving_average;
           fillerState = STATE_FILLING_BOTTLE;
           fill_percentage = 0;
+          last_fill_percentage = -99999;
         }
       }
     } else if ((fillerState == STATE_FILLING_BOTTLE) && (appState == STATE_FILLER)) {
-      drawFilling();
       if (debug_print) Serial.println("Pump On in taskFiller");
+
+      if ((fabs(fill_percentage - last_fill_percentage)) > 0.5) drawFilling();
+
+      last_fill_percentage = fill_percentage;
       fill_percentage = int(abs(currentWeight - bottle_weight) * 100 / mg_to_fill);
 
       // Smooth start
-      if (fill_percentage < 5) setPumpPWMpercent(10);
+      if (fill_percentage < 5) setPumpPWMpercent(low_duty);
 
       // Full spedd
-      if ((fill_percentage > 5) && (fill_percentage < 85)) setPumpPWMpercent(100);
+      if ((fill_percentage > 5) && (fill_percentage < 85)) setPumpPWMpercent(full_duty);
 
       // Smooth finish
-      if (fill_percentage > 85) setPumpPWMpercent(15);
-      if (fill_percentage > 95) setPumpPWMpercent(5);
+      if (fill_percentage > 80) setPumpPWMpercent(low_duty);
       // Bottle is filled
       if (currentWeight >= (bottle_weight + mg_to_fill)) {
+        setPumpPWMpercent(0);
+        ledcWrite(pwmPin, 0);
+
         fillerState = STATE_FILLED_BOTTLE;
-        if (debug_print) Serial.println("Pump Off in taskFiller");
         drawFinish();
         bottle_filled = true;
       }
       // Waiting for the bottle to be removed
     } else if ((fillerState == STATE_FILLED_BOTTLE) && (appState == STATE_FILLER) && (moving_average < 10)) {
+      setPumpPWMpercent(0);
+      ledcWrite(pwmPin, 0);
       fillerState = STATE_START;
       bottle_filled = false;
       drawFilller();
@@ -614,7 +639,9 @@ void taskDisplay(void*) {
     if (appState != lastState || currentSelection != lastSelection) {
       needRedraw = true;
       switch (appState) {
-        case STATE_MAIN_MENU: drawMenu(); break;
+        case STATE_MAIN_MENU:
+          drawMenu();
+          break;
         case STATE_FILLER: drawFilller(); break;
         case STATE_GRAVITY: drawSettingMenu("Final Gravity", beer_gravity, TFT_BLACK); break;
         case STATE_TARE: drawScreen("Tare", TFT_NAVY); break;
@@ -645,14 +672,14 @@ void taskDisplay(void*) {
 }
 
 // Duty cycle to control the pump
+// --- fonction pour régler PWM en % ---
 void setPumpPWMpercent(float percent) {
-  int duty = (int)(percent / 100.0 * ((1 << pwmResolution) - 1));
-  ledcWriteChannel(pwmChannel, duty);
-  // ou
-  // ledcWrite(uint8_t pin, uint32_t duty);
+  if (percent < 0) percent = 0;
+  if (percent > 100) percent = 100;
+  int maxDuty = (1 << pwmResolution) - 1;
+  int duty = (int)(percent / 100.0 * maxDuty);
+  ledcWrite(pwmPin, duty);
 }
-
-
 // ---------- Setup / Loop ----------
 void setup() {
   Serial.begin(115200);
@@ -717,7 +744,11 @@ void setup() {
   // intro();
 
   // PWM configuration
-  ledcAttachChannel(pwmPin, pwmFreq, pwmResolution, pwmChannel);
+  // attache le canal PWM à la pin
+  ledcAttach(pwmPin, pwmFreq, pwmResolution);
+
+  // duty = 0 au démarrage
+  ledcWrite(pwmPin, 0);
   // delay(100);
 
 
@@ -727,7 +758,6 @@ void setup() {
   xTaskCreatePinnedToCore(taskDisplay, "TaskDisplay", 4096, nullptr, 2, &taskDisplayHandle, 1);
   xTaskCreatePinnedToCore(taskHX711, "HX711_Task", 4096, nullptr, 3, &taskHX711Handle, 1);
   xTaskCreatePinnedToCore(taskFiller, "Filler_Task", 4096, nullptr, 3, &taskFillerHandle, 1);
-  setPumpPWMpercent(0);
 
   Serial.println("Starting Filler Machine");
 }
