@@ -21,7 +21,7 @@ const int pwmResolution = 10; // Résolution : 10 bits (0-1023)
 
 const int low_duty = 70; // Résolution : 10 bits (0-1023)
 const int full_duty = 100; // Résolution : 10 bits (0-1023)
-
+int last_percent_duty;
 
 
 // Bottle parameters

@@ -37,7 +37,7 @@ M5Canvas weight_in_memory(&M5.Display);
 M5Canvas value_canvas(&M5.Display);
 
 // ---------- Menu ----------
-const char* menuItems[] = { "Filler", "Gravity", "Tare", "Calibration" };
+const char* menuItems[] = { "Filler", "Pump", "Gravity", "Tare", "Calibration" };
 const int menuSize = sizeof(menuItems) / sizeof(menuItems[0]);
 volatile int currentSelection = 0;
 
@@ -45,6 +45,7 @@ volatile int currentSelection = 0;
 enum AppState {
   STATE_MAIN_MENU,
   STATE_FILLER,
+  STATE_PUMP,
   STATE_GRAVITY,
   STATE_TARE,
   STATE_CALIBRATION
@@ -81,7 +82,7 @@ static inline void drawMenu() {
   image_in_memory.setFont(&fonts::FreeMonoBold18pt7b);
   image_in_memory.setTextSize(1);
 
-  int menu_item_height = 45;
+  int menu_item_height = 37;
   for (int i = 0; i < menuSize; i++) {
     image_in_memory.setTextColor((i == currentSelection) ? TFT_YELLOW : TFT_WHITE, TFT_BLACK);
     image_in_memory.drawString(menuItems[i], 10, 20 + menu_item_height + i * menu_item_height);
@@ -244,17 +245,35 @@ static inline void drawWeight() {
 }
 
 static inline void drawScreen(const char* title, uint16_t color) {
-  image_in_memory.fillScreen(color);
-  image_in_memory.setTextDatum(middle_center);
-  image_in_memory.setTextColor(TFT_WHITE, color);
-  image_in_memory.setFont(&fonts::Font4);
+  M5.Display.fillScreen(color);
+  M5.Display.setTextDatum(middle_center);
+  M5.Display.setTextColor(TFT_WHITE, color);
+  M5.Display.setFont(&fonts::Font4);
 
-  image_in_memory.drawString(title, M5.Display.width() / 2, M5.Display.height() / 2);
-  image_in_memory.setFont(&fonts::Font2);
+  M5.Display.drawString(title, M5.Display.width() / 2, M5.Display.height() / 2);
+  M5.Display.setFont(&fonts::Font2);
 
-  image_in_memory.drawString("Appuie sur B pour revenir", M5.Display.width() / 2, M5.Display.height() - 18);
-  image_in_memory.pushSprite(0, 0);
+  M5.Display.drawString("B button for main menu", M5.Display.width() / 2, M5.Display.height() - 18);
 }
+
+static inline void drawPump(uint16_t color) {
+  M5.Display.fillScreen(color);
+  M5.Display.setTextDatum(middle_center);
+  M5.Display.setTextColor(TFT_WHITE, color);
+  M5.Display.setFont(&fonts::Font4);
+
+  M5.Display.drawString("Pump On", M5.Display.width() / 2, M5.Display.height() / 2);
+  M5.Display.setFont(&fonts::Font2);
+  LGFX_Button button_stop;
+
+  int button_height = 40;
+  int button_width = M5.Display.width();
+  button_stop.initButtonUL(&M5.Display, 0, M5.Display.height() - button_height, button_width, button_height, TFT_RED, TFT_BEER, TFT_BLACK, "STOP", 1, 1);
+  button_stop.drawButton();
+  // Pump on
+  setPumpPWMpercent(full_duty);
+}
+
 
 
 static inline void drawFilller() {
@@ -547,12 +566,15 @@ void taskMenu(void*) {
                 fillerState = STATE_START;
                 break;
               case 1:
-                appState = STATE_GRAVITY;
+                appState = STATE_PUMP;
                 break;
               case 2:
-                appState = STATE_TARE;
+                appState = STATE_GRAVITY;
                 break;
               case 3:
+                appState = STATE_TARE;
+                break;
+              case 4:
                 appState = STATE_CALIBRATION;
                 break;
             }
@@ -619,6 +641,12 @@ void taskMenu(void*) {
             appState = STATE_MAIN_MENU;
             break;
         }
+      } else if (appState == STATE_PUMP) {
+        if ((evt == BTN_A) || (evt == BTN_B) || (evt == BTN_C)) {
+          appState = STATE_MAIN_MENU;
+          // Stop the pump
+          setPumpPWMpercent(0);
+        }
       } else if (appState == STATE_FILLER) {
         if ((evt == BTN_A) || (evt == BTN_B) || (evt == BTN_C)) {
           appState = STATE_MAIN_MENU;
@@ -657,6 +685,7 @@ void taskDisplay(void*) {
           drawMenu();
           break;
         case STATE_FILLER: drawFilller(); break;
+        case STATE_PUMP: drawPump(TFT_BLACK); break;
         case STATE_GRAVITY: drawSettingMenu("Final Gravity", beer_gravity, TFT_BLACK); break;
         case STATE_TARE: drawScreen("Tare", TFT_BLACK); break;
         case STATE_CALIBRATION:
@@ -687,13 +716,20 @@ void taskDisplay(void*) {
 
 // Duty cycle to control the pump
 // --- fonction pour régler PWM en % ---
-void setPumpPWMpercent(float percent) {
-  if (percent < 0) percent = 0;
-  if (percent > 100) percent = 100;
-  int maxDuty = (1 << pwmResolution) - 1;
-  int duty = (int)(percent / 100.0 * maxDuty);
-  ledcWrite(pwmPin, duty);
+void setPumpPWMpercent(float percent_duty) {
+  // change PWM only if it's different
+  if (last_percent_duty != percent_duty) {
+    if (percent_duty < 0) percent_duty = 0;
+    if (percent_duty > 100) percent_duty = 100;
+    int maxDuty = (1 << pwmResolution) - 1;
+    int duty = (int)(percent_duty / 100.0 * maxDuty);
+    ledcWrite(pwmPin, duty);
+    // update last_percent_duty
+    last_percent_duty = percent_duty;
+  }
 }
+
+
 // ---------- Setup / Loop ----------
 void setup() {
   Serial.begin(115200);
@@ -764,6 +800,7 @@ void setup() {
 
   // duty = 0 au démarrage
   ledcWrite(pwmPin, 0);
+  last_percent_duty = -999;
   // delay(100);
 
 
