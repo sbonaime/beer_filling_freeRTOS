@@ -50,7 +50,7 @@ float lastDrawnWeight;
 float lastDrawnAverage;
 
 
-constexpr int MAX_FIFO_SIZE = 20;
+constexpr int MAX_FIFO_SIZE = 10;
 constexpr float BOTTLE_33CL_MIN = 190.0f;
 constexpr float BOTTLE_33CL_MAX = 265.0f;
 constexpr float BOTTLE_50CL_MIN = 265.0f;

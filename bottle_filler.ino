@@ -36,8 +36,8 @@ const uint8_t clockPin = 17;
 HX711 scale;
 QueueHandle_t weightQueue;
 float currentWeight = 0;
-// bool debug_print = true;
-bool debug_print = true;
+bool debug_print = false;
+//bool debug_print = true;
 
 // FIFO object for float
 FIFObuf<float> fifo_scale(MAX_FIFO_SIZE);
@@ -362,7 +362,7 @@ static inline void drawFinish() {
   // Remplissage virtuel
   for (int i = 0; i < 100; i++) {
     draw_beer_bottle(bottle_position_x, bottle_position_y, i, 100, 0xFF, TFT_BLACK, false);
-    delay(10);
+    // delay(10);
   }
 }
 
@@ -598,7 +598,7 @@ void taskFiller(void*) {
       drawFilller();
     }
     if (bottle_filled) {
-      vTaskDelay(pdMS_TO_TICKS(300));
+      vTaskDelay(pdMS_TO_TICKS(150));
     } else {
       vTaskDelay(pdMS_TO_TICKS(25));
     }
