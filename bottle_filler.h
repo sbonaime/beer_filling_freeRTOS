@@ -14,13 +14,13 @@ float old_beer_height, new_beer_height;
 int fill_percentage, last_fill_percentage;
 
 // PWM parameters
-const int pwmPin = 26;     // GPIO de sortie (ex: 26, 25, 19... éviter 34-39 car entrée seule)
-const int pwmChannel = 0;  // Canal PWM (0-15)
-const int pwmFreq = 10000; // Fréquence : 10 kHz
-const int pwmResolution = 10; // Résolution : 10 bits (0-1023)
+const int pwmPin = 26;         // GPIO de sortie (ex: 26, 25, 19... éviter 34-39 car entrée seule)
+const int pwmChannel = 0;      // Canal PWM (0-15)
+const int pwmFreq = 10000;     // Fréquence : 10 kHz
+const int pwmResolution = 10;  // Résolution : 10 bits (0-1023)
 
-const int low_duty = 70; // Résolution : 10 bits (0-1023)
-const int full_duty = 100; // Résolution : 10 bits (0-1023)
+const int low_duty = 70;    // Résolution : 10 bits (0-1023)
+const int full_duty = 100;  // Résolution : 10 bits (0-1023)
 int last_percent_duty;
 
 
@@ -32,12 +32,13 @@ float poids = 0.0, old_poids = 0.0, poids_bouteille = 0.0, poids_final = 0.0, po
 float mg_to_fill = 0.0;
 float bottle_scaling = 1.7;
 
-uint32_t transparent_color = TFT_TRANSPARENT;
 
 // Elements pour UI
 #define TFT_GREY 0x5AEB
-#define TFT_RED_STOP 0xE36D  // Couleur boutton stop
-#define TFT_BEER 0xD9840D    // Couleur biere
+#define TFT_RED_STOP 0xE36D  // Red boutton stop color
+#define TFT_BEER 0xD9840D    // Beer color
+const int transparent_color = 0x0120;
+
 
 
 // Fifo

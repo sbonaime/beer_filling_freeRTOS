@@ -1,10 +1,22 @@
+#include "bottle_filler.h"
 #include <M5Unified.h>
 #include <M5GFX.h>
-#include "bottle_filler.h"
 #include <HX711.h>
 #include <Preferences.h>
 #include <FIFObuf.h>
 #include <SimpleKalmanFilter.h>
+
+
+
+// Board
+// https://docs.m5stack.com/en/arduino/arduino_board
+
+// Librairies
+// M5Unified
+// HX711 : https://github.com/RobTillaart/
+// FIFObuf https://github.com/pervu/FIFObuf
+// SimpleKalmanFilter https://github.com/denyssene/SimpleKalmanFilter
+
 
 Preferences preferences;
 
@@ -25,7 +37,7 @@ HX711 scale;
 QueueHandle_t weightQueue;
 float currentWeight = 0;
 // bool debug_print = true;
-bool debug_print = false;
+bool debug_print = true;
 
 // FIFO object for float
 FIFObuf<float> fifo_scale(MAX_FIFO_SIZE);
@@ -73,7 +85,10 @@ QueueHandle_t buttonQueue;  // events boutons -> menu
 
 enum ButtonEvent { BTN_A,
                    BTN_B,
-                   BTN_C };
+                   BTN_C,
+                   BTN_A_LONG_1s,
+                   BTN_B_LONG_1s,
+                   BTN_C_LONG_1s };
 
 // ---------- Rendu ----------
 static inline void drawMenu() {
@@ -444,24 +459,70 @@ void taskHX711(void*) {
 }
 
 void taskButtons(void*) {
+  const int longPressDelay = 1000;  // ms avant auto-repeat
+  const int repeatInterval = 200;   // ms entre chaque incrément auto-repeat
+  static uint32_t lastRepeatA = 0;
+  static uint32_t lastRepeatC = 0;
+  static bool aLongActive = false;
+  static bool cLongActive = false;
+
   for (;;) {
     M5.update();
+    uint32_t now = millis();
+
+    // BTN_A
     if (M5.BtnA.wasPressed()) {
       ButtonEvent e = BTN_A;
       xQueueSend(buttonQueue, &e, 0);
+      aLongActive = false;
+      lastRepeatA = now;
     }
+    if (M5.BtnA.pressedFor(longPressDelay)) {
+      if (!aLongActive) {
+        ButtonEvent e = BTN_A_LONG_1s;
+        xQueueSend(buttonQueue, &e, 0);
+        aLongActive = true;
+        lastRepeatA = now;
+      } else if (now - lastRepeatA > repeatInterval) {
+        ButtonEvent e = BTN_A_LONG_1s;
+        xQueueSend(buttonQueue, &e, 0);
+        lastRepeatA = now;
+      }
+    } else {
+      aLongActive = false;
+    }
+
+    // BTN_C
+    if (M5.BtnC.wasPressed()) {
+      ButtonEvent e = BTN_C;
+      xQueueSend(buttonQueue, &e, 0);
+      cLongActive = false;
+      lastRepeatC = now;
+    }
+    if (M5.BtnC.pressedFor(longPressDelay)) {
+      if (!cLongActive) {
+        ButtonEvent e = BTN_C_LONG_1s;
+        xQueueSend(buttonQueue, &e, 0);
+        cLongActive = true;
+        lastRepeatC = now;
+      } else if (now - lastRepeatC > repeatInterval) {
+        ButtonEvent e = BTN_C_LONG_1s;
+        xQueueSend(buttonQueue, &e, 0);
+        lastRepeatC = now;
+      }
+    } else {
+      cLongActive = false;
+    }
+
+    // BTN_B (idem si besoin)
     if (M5.BtnB.wasPressed()) {
       ButtonEvent e = BTN_B;
       xQueueSend(buttonQueue, &e, 0);
     }
-    if (M5.BtnC.wasPressed()) {
-      ButtonEvent e = BTN_C;
-      xQueueSend(buttonQueue, &e, 0);
-    }
+
     vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
-
 void taskFiller(void*) {
   for (;;) {
     bool bottle_filled = false;
@@ -586,8 +647,16 @@ void taskMenu(void*) {
             beer_gravity = beer_gravity - 0.001;
             updateValue(beer_gravity, TFT_BLACK);
             break;
+          case BTN_A_LONG_1s:
+            beer_gravity = beer_gravity - 0.01;
+            updateValue(beer_gravity, TFT_BLACK);
+            break;
           case BTN_C:
             beer_gravity = beer_gravity + 0.001;
+            updateValue(beer_gravity, TFT_BLACK);
+            break;
+          case BTN_C_LONG_1s:
+            beer_gravity = beer_gravity + 0.01;
             updateValue(beer_gravity, TFT_BLACK);
             break;
           case BTN_B:
@@ -606,12 +675,19 @@ void taskMenu(void*) {
             calib_weight = calib_weight - 1;
             updateValue(calib_weight, TFT_BLACK);
             break;
+          case BTN_A_LONG_1s:
+            calib_weight = calib_weight - 10;
+            updateValue(calib_weight, TFT_BLACK);
+            break;
           case BTN_C:
             calib_weight = calib_weight + 1;
             updateValue(calib_weight, TFT_BLACK);
             break;
+          case BTN_C_LONG_1s:
+            calib_weight = calib_weight + 10;
+            updateValue(calib_weight, TFT_BLACK);
+            break;
           case BTN_B:
-
             preferences.putFloat("beer_gravity", beer_gravity);
             saved_beer_gravity = beer_gravity;
 
