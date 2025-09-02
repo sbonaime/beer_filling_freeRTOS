@@ -1,10 +1,11 @@
 #include "bottle_filler.h"
 #include <M5Unified.h>
 #include <M5GFX.h>
-#include <HX711.h>
 #include <Preferences.h>
 #include <FIFObuf.h>
 #include <SimpleKalmanFilter.h>
+#include <Adafruit_NAU7802.h>
+#include <Wire.h>
 
 
 
@@ -13,7 +14,6 @@
 
 // Librairies
 // M5Unified
-// HX711 : https://github.com/RobTillaart/
 // FIFObuf https://github.com/pervu/FIFObuf
 // SimpleKalmanFilter https://github.com/denyssene/SimpleKalmanFilter
 
@@ -30,14 +30,14 @@ Preferences preferences;
 SimpleKalmanFilter kaman_filter = SimpleKalmanFilter(.1, .1, 0.1);
 
 
-//  HX711
 const uint8_t dataPin = 16;
 const uint8_t clockPin = 17;
-HX711 scale;
 QueueHandle_t weightQueue;
 float currentWeight = 0;
 bool debug_print = false;
 //bool debug_print = true;
+
+Adafruit_NAU7802 nau = Adafruit_NAU7802();
 
 // FIFO object for float
 FIFObuf<float> fifo_scale(MAX_FIFO_SIZE);
@@ -78,8 +78,8 @@ volatile FillerState fillerState = STATE_START;
 TaskHandle_t taskButtonsHandle = nullptr;
 TaskHandle_t taskMenuHandle = nullptr;
 TaskHandle_t taskDisplayHandle = nullptr;
-TaskHandle_t taskHX711Handle = nullptr;
 TaskHandle_t taskFillerHandle = nullptr;
+TaskHandle_t taskNAU7802Handle = nullptr;
 
 QueueHandle_t buttonQueue;  // events boutons -> menu
 
@@ -420,13 +420,43 @@ static inline void drawSettingMenu(const char* title, float value, uint16_t back
   // M5.Display.drawString("+", 2 * button_width + button_width / 2, M5.Display.height() - button_height / 2, TFT_WHITE);
 }
 
-// ---------- Tâches ----------
-void taskHX711(void*) {
-  Serial.println("Tâche HX711 démarrée");
+void do_tare_scale() {
+  // --- Tare ---
+  int64_t sum = 0;
+  for (int i = 0; i < 20; i++) {
+    while (!nau.available())
+      ;
+    sum += nau.read();
+  }
+  scale_offset = sum / 20;
+
+  Serial.printf("Tare done");
+}
+
+
+void do_scale_factor() {
+
+  int64_t sum = 0;
+  for (int i = 0; i < 20; i++) {
+    while (!nau.available())
+      ;
+    sum += nau.read();
+  }
+  int32_t avgReading = sum / 20;
+
+  scale_factor = (avgReading - scale_offset) / calib_weight;
+  Serial.printf("Scale factor done");
+}
+
+
+void taskNAU7802(void*) {
+
+  Serial.println("Tâche NAU7802 démarrée");
+
   for (;;) {
-    // if (hx711Initialized && scale.is_ready()) {
-    if (scale.is_ready()) {
-      float weight = scale.get_units(1);
+    if (nau.available()) {
+      int32_t val = nau.read();
+      float weight = (val - scale_offset) / scale_factor;
 
       // Kalman filter
       float kf_weight = kaman_filter.updateEstimate(weight);
@@ -450,13 +480,15 @@ void taskHX711(void*) {
       //   counter = 1;
       // }
     } else {
-      Serial.println("HX711 non prêt");
+      Serial.println("NAU7802 non prêt");
       vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-    vTaskDelay(pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(25));
   }
 }
+
+
 
 void taskButtons(void*) {
   const int longPressDelay = 1000;  // ms avant auto-repeat
@@ -694,17 +726,9 @@ void taskMenu(void*) {
 
             // Do the calibration with calib_weight
             if (calib_weight != saved_calib_weight) {
-              // Serial.print("calib_weight : ");
-              // Serial.println(calib_weight);
-
-              // Serial.print("saved_calib_weight : ");
-              // Serial.println(saved_calib_weight);
-
-              scale.calibrate_scale(calib_weight, 5);
 
               // Get calibration parameters
-              scale_factor = scale.get_scale();
-              scale_offset = scale.get_offset();
+              do_scale_factor();
 
               // Save values in EEPROM
               preferences.putFloat("scale_offset", scale_offset);
@@ -734,9 +758,9 @@ void taskMenu(void*) {
         if (evt == BTN_B) {
           // Serial.println("[Screen] back to main menu");
           if (appState == STATE_TARE) {
-            scale.set_scale(scale_factor);
-            scale.set_offset(scale_offset);
-            scale.tare();
+            do_scale_factor();
+            // Tare Scale
+            do_tare_scale();
           }
           appState = STATE_MAIN_MENU;
         }
@@ -836,28 +860,52 @@ void setup() {
   lastDrawnAverage = -99999.0f;  // impossible value to force first draw
 
 
-  // HX711 INIT
-  scale.begin(dataPin, clockPin);
-  // Serial.print("UNITS: ");
-  // Serial.println(scale.get_units(10));
-  delay(100);
+  // NAU7802
+  Wire.begin(21, 22);  // SDA, SCL
 
-  // openpreferences in read / write
+
+  if (!nau.begin()) {
+    Serial.println("Erreur : NAU7802 non détecté !");
+    while (1) vTaskDelay(1000);
+  }
+
+  // Config LDO, gain et rate
+  nau.setLDO(NAU7802_3V0);
+  nau.setGain(NAU7802_GAIN_128);
+  nau.setRate(NAU7802_RATE_40SPS);
+
+  while (!nau.calibrate(NAU7802_CALMOD_INTERNAL)) {
+    Serial.println("Failed to calibrate internal offset, retrying!");
+    delay(1000);
+  }
+  Serial.println("Calibrated internal offset");
+
+  while (!nau.calibrate(NAU7802_CALMOD_OFFSET)) {
+    Serial.println("Failed to calibrate system offset, retrying!");
+    delay(1000);
+  }
+  Serial.println("Calibrated system offset");
+
+  Serial.println("NAU7802 initialisé !");
+
+
   preferences.begin("filler", false);
   scale_offset = preferences.getFloat("scale_offset", -954218);
   scale_factor = preferences.getFloat("scale_factor", -1121.379150);
-  saved_calib_weight = preferences.getInt("calib_weight", 180);
-  saved_beer_gravity = preferences.getFloat("beer_gravity", 1.015);
+  saved_calib_weight = preferences.getInt("calib_weight", 185);
+  saved_beer_gravity = preferences.getFloat("beer_gravity", 1.00);
 
 
   calib_weight = saved_calib_weight;
   beer_gravity = saved_beer_gravity;
 
-  scale.set_scale(scale_factor);
-  scale.set_offset(scale_offset);
+  // Scale Factor
+  Serial.println("Scale Factor now !");
+  do_scale_factor();
 
   Serial.println("Tare now !");
-  scale.tare();
+  // Tare Scale
+  do_tare_scale();
 
   // Créer la queue
   weightQueue = xQueueCreate(10, sizeof(float));
@@ -884,7 +932,7 @@ void setup() {
   xTaskCreatePinnedToCore(taskButtons, "TaskButtons", 4096, nullptr, 2, &taskButtonsHandle, 0);
   xTaskCreatePinnedToCore(taskMenu, "TaskMenu", 4096, nullptr, 1, &taskMenuHandle, 1);
   xTaskCreatePinnedToCore(taskDisplay, "TaskDisplay", 4096, nullptr, 2, &taskDisplayHandle, 1);
-  xTaskCreatePinnedToCore(taskHX711, "HX711_Task", 4096, nullptr, 3, &taskHX711Handle, 1);
+  xTaskCreatePinnedToCore(taskNAU7802, "NAU7802_Task", 4096, nullptr, 3, &taskNAU7802Handle, 1);
   xTaskCreatePinnedToCore(taskFiller, "Filler_Task", 4096, nullptr, 3, &taskFillerHandle, 1);
 
   Serial.println("Starting Filler Machine");
