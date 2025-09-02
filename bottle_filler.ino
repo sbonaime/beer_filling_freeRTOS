@@ -1,11 +1,11 @@
 #include "bottle_filler.h"
 #include <M5Unified.h>
+#include <Wire.h>
 #include <M5GFX.h>
 #include <Preferences.h>
 #include <FIFObuf.h>
 #include <SimpleKalmanFilter.h>
 #include <Adafruit_NAU7802.h>
-#include <Wire.h>
 
 
 
@@ -17,6 +17,7 @@
 // FIFObuf https://github.com/pervu/FIFObuf
 // SimpleKalmanFilter https://github.com/denyssene/SimpleKalmanFilter
 
+Adafruit_NAU7802 nau = Adafruit_NAU7802();
 
 Preferences preferences;
 
@@ -35,12 +36,11 @@ const uint8_t clockPin = 17;
 QueueHandle_t weightQueue;
 float currentWeight = 0;
 bool debug_print = false;
-//bool debug_print = true;
+// bool debug_print = true;
 
-Adafruit_NAU7802 nau = Adafruit_NAU7802();
 
-// FIFO object for float
-FIFObuf<float> fifo_scale(MAX_FIFO_SIZE);
+// FIFO object for double
+FIFObuf<double> fifo_scale(MAX_FIFO_SIZE);
 
 // ---------- Sprite (frame buffer en RAM, 8 bits pour CoreS3) ----------
 M5Canvas image_in_memory(&M5.Display);
@@ -423,29 +423,30 @@ static inline void drawSettingMenu(const char* title, float value, uint16_t back
 void do_tare_scale() {
   // --- Tare ---
   int64_t sum = 0;
-  for (int i = 0; i < 20; i++) {
+  for (int i = 0; i < SCALE_SPS / 2; i++) {
     while (!nau.available())
       ;
     sum += nau.read();
   }
-  scale_offset = sum / 20;
+  scale_offset = sum / SCALE_SPS / 2;
+  preferences.putDouble("scale_offset", scale_offset);
 
-  Serial.printf("Tare done");
+  Serial.println("Tare done");
 }
 
 
 void do_scale_factor() {
 
   int64_t sum = 0;
-  for (int i = 0; i < 20; i++) {
-    while (!nau.available())
-      ;
-    sum += nau.read();
+  for (int i = 0; i < SCALE_SPS * 2; i++) {
+    while (!nau.available()) {
+      sum += nau.read();
+    }
   }
-  int32_t avgReading = sum / 20;
+  int32_t avgReading = sum / SCALE_SPS * 2;
 
   scale_factor = (avgReading - scale_offset) / calib_weight;
-  Serial.printf("Scale factor done");
+  Serial.println("Scale factor done");
 }
 
 
@@ -473,18 +474,15 @@ void taskNAU7802(void*) {
         moving_average = moving_average_sum / MAX_FIFO_SIZE;
       }
 
-
-      // static int counter = 0;
-      // if (counter++ % 5 == 0) {  // Réduire la fréquence des messages debug
-      //   Serial.printf("Poids: %.2fg\n", weight);
-      //   counter = 1;
-      // }
     } else {
       Serial.println("NAU7802 non prêt");
       vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-    vTaskDelay(pdMS_TO_TICKS(25));
+    // 40 SPS
+    // vTaskDelay(pdMS_TO_TICKS(25));
+    // 10 SPS
+    vTaskDelay(pdMS_TO_TICKS(1000 / SCALE_SPS));
   }
 }
 
@@ -632,7 +630,7 @@ void taskFiller(void*) {
     if (bottle_filled) {
       vTaskDelay(pdMS_TO_TICKS(150));
     } else {
-      vTaskDelay(pdMS_TO_TICKS(25));
+      vTaskDelay(pdMS_TO_TICKS(1000 / SCALE_SPS));
     }
   }
 }
@@ -720,9 +718,6 @@ void taskMenu(void*) {
             updateValue(calib_weight, TFT_BLACK);
             break;
           case BTN_B:
-            preferences.putFloat("beer_gravity", beer_gravity);
-            saved_beer_gravity = beer_gravity;
-
 
             // Do the calibration with calib_weight
             if (calib_weight != saved_calib_weight) {
@@ -731,8 +726,7 @@ void taskMenu(void*) {
               do_scale_factor();
 
               // Save values in EEPROM
-              preferences.putFloat("scale_offset", scale_offset);
-              preferences.putFloat("scale_factor", scale_factor);
+              preferences.putDouble("scale_factor", scale_factor);
               preferences.putInt("calib_weight", calib_weight);
 
               Serial.println("Nouvelle calib_weight => sauvegarde");
@@ -758,7 +752,7 @@ void taskMenu(void*) {
         if (evt == BTN_B) {
           // Serial.println("[Screen] back to main menu");
           if (appState == STATE_TARE) {
-            do_scale_factor();
+            // do_scale_factor();
             // Tare Scale
             do_tare_scale();
           }
@@ -832,14 +826,73 @@ void setPumpPWMpercent(float percent_duty) {
 
 // ---------- Setup / Loop ----------
 void setup() {
-  Serial.begin(115200);
-  delay(100);
-
-
   auto cfg = M5.config();
   M5.begin(cfg);
-  M5.Display.setRotation(1);
 
+  Serial.begin(115200);
+  Wire.begin(21, 22, 100000);  // SDA=21, SCL=22, 100kHz
+  delay(1000);
+
+  Serial.println("Scan I2C...");
+  for (byte address = 1; address < 127; address++) {
+    Wire.beginTransmission(address);
+    if (Wire.endTransmission() == 0) {
+      Serial.print("Trouvé périphérique I2C à 0x");
+      Serial.println(address, HEX);
+    }
+  }
+
+  Wire.begin(21, 22);  // SDA, SCL
+
+
+
+  if (!nau.begin()) {
+    Serial.println("Erreur : NAU7802 non détecté !");
+    while (1) vTaskDelay(1000);
+  }
+
+  // Config LDO, gain et rate
+  nau.setLDO(NAU7802_3V0);
+  nau.setGain(NAU7802_GAIN_128);
+
+  Serial.print("Conversion rate set to ");
+  switch (SCALE_SPS) {
+    case 10:
+      nau.setRate(NAU7802_RATE_10SPS);
+      Serial.println("10 SPS");
+      break;
+    case 20:
+      nau.setRate(NAU7802_RATE_20SPS);
+      Serial.println("20 SPS");
+      break;
+    case 40:
+      nau.setRate(NAU7802_RATE_40SPS);
+      Serial.println("40 SPS");
+      break;
+    case 80:
+      nau.setRate(NAU7802_RATE_80SPS);
+      Serial.println("80 SPS");
+      break;
+    case 320:
+      nau.setRate(NAU7802_RATE_320SPS);
+      Serial.println("320 SPS");
+      break;
+  }
+
+  while (!nau.calibrate(NAU7802_CALMOD_INTERNAL)) {
+    Serial.println("Failed to calibrate internal offset, retrying!");
+    delay(1000);
+  }
+  Serial.println("Calibrated internal offset");
+
+  while (!nau.calibrate(NAU7802_CALMOD_OFFSET)) {
+    Serial.println("Failed to calibrate system offset, retrying!");
+    delay(1000);
+  }
+  Serial.println("Calibrated system offset");
+
+  Serial.println("NAU7802 initialisé !");
+  M5.Display.setRotation(1);
 
   // Sprite 8 bits pour éviter 0x0
   image_in_memory.setColorDepth(8);
@@ -860,38 +913,13 @@ void setup() {
   lastDrawnAverage = -99999.0f;  // impossible value to force first draw
 
 
-  // NAU7802
-  Wire.begin(21, 22);  // SDA, SCL
-
-
-  if (!nau.begin()) {
-    Serial.println("Erreur : NAU7802 non détecté !");
-    while (1) vTaskDelay(1000);
-  }
-
-  // Config LDO, gain et rate
-  nau.setLDO(NAU7802_3V0);
-  nau.setGain(NAU7802_GAIN_128);
-  nau.setRate(NAU7802_RATE_40SPS);
-
-  while (!nau.calibrate(NAU7802_CALMOD_INTERNAL)) {
-    Serial.println("Failed to calibrate internal offset, retrying!");
-    delay(1000);
-  }
-  Serial.println("Calibrated internal offset");
-
-  while (!nau.calibrate(NAU7802_CALMOD_OFFSET)) {
-    Serial.println("Failed to calibrate system offset, retrying!");
-    delay(1000);
-  }
-  Serial.println("Calibrated system offset");
-
-  Serial.println("NAU7802 initialisé !");
 
 
   preferences.begin("filler", false);
-  scale_offset = preferences.getFloat("scale_offset", -954218);
-  scale_factor = preferences.getFloat("scale_factor", -1121.379150);
+  preferences.clear();
+
+  scale_offset = preferences.getDouble("scale_offset", -954218);
+  scale_factor = preferences.getDouble("scale_factor", -1121.379150);
   saved_calib_weight = preferences.getInt("calib_weight", 185);
   saved_beer_gravity = preferences.getFloat("beer_gravity", 1.00);
 
@@ -908,7 +936,7 @@ void setup() {
   do_tare_scale();
 
   // Créer la queue
-  weightQueue = xQueueCreate(10, sizeof(float));
+  weightQueue = xQueueCreate(SCALE_SPS, sizeof(float));
   if (weightQueue == NULL) {
     Serial.println("ERREUR: Impossible de créer la queue");
   } else {

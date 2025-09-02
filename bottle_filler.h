@@ -4,8 +4,8 @@ float saved_beer_gravity;
 int saved_calib_weight;
 
 float beer_gravity;
-float scale_offset;
-float scale_factor;
+double scale_offset;
+double scale_factor;
 int calib_weight;
 float bottle_weight;
 float ml_to_fill;
@@ -49,8 +49,8 @@ float moving_average_sum;
 float lastDrawnWeight;
 float lastDrawnAverage;
 
-
-constexpr int MAX_FIFO_SIZE = 10;
+constexpr int SCALE_SPS=80;
+constexpr int MAX_FIFO_SIZE = SCALE_SPS;
 constexpr float BOTTLE_33CL_MIN = 190.0f;
 constexpr float BOTTLE_33CL_MAX = 265.0f;
 constexpr float BOTTLE_50CL_MIN = 265.0f;
