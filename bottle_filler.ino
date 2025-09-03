@@ -33,7 +33,8 @@ SimpleKalmanFilter kaman_filter = SimpleKalmanFilter(.1, .1, 0.1);
 
 const uint8_t dataPin = 16;
 const uint8_t clockPin = 17;
-QueueHandle_t weightQueue;
+// Mutex for the weight
+SemaphoreHandle_t xMutex;
 float currentWeight = 0;
 bool debug_print = false;
 // bool debug_print = true;
@@ -424,9 +425,10 @@ void do_tare_scale() {
   // --- Tare ---
   int64_t sum = 0;
   for (int i = 0; i < SCALE_SPS / 2; i++) {
-    while (!nau.available())
-      ;
-    sum += nau.read();
+    if (xSemaphoreTake(xMutex, (TickType_t)10) == pdTRUE) {
+      sum += kf_weight;
+      xSemaphoreGive(xMutex);
+    }
   }
   scale_offset = sum / SCALE_SPS / 2;
   preferences.putDouble("scale_offset", scale_offset);
@@ -439,11 +441,12 @@ void do_scale_factor() {
 
   int64_t sum = 0;
   for (int i = 0; i < SCALE_SPS * 2; i++) {
-    while (!nau.available()) {
-      sum += nau.read();
+    if (xSemaphoreTake(xMutex, (TickType_t)10) == pdTRUE) {
+      sum += kf_weight;
+      xSemaphoreGive(xMutex);
     }
   }
-  int32_t avgReading = sum / SCALE_SPS * 2;
+  int32_t avgReading = sum / (SCALE_SPS * 2);
 
   scale_factor = (avgReading - scale_offset) / calib_weight;
   Serial.println("Scale factor done");
@@ -459,12 +462,10 @@ void taskNAU7802(void*) {
       int32_t val = nau.read();
       float weight = (val - scale_offset) / scale_factor;
 
-      // Kalman filter
-      float kf_weight = kaman_filter.updateEstimate(weight);
+      if (xSemaphoreTake(xMutex, (TickType_t)10) == pdTRUE) {
+        // Kalman filter
+        kf_weight = kaman_filter.updateEstimate(weight);
 
-
-      if (weightQueue != NULL) {
-        xQueueSend(weightQueue, &kf_weight, 0);
 
         // Fifo and moving average
         moving_average_sum -= fifo_scale.pop();
@@ -472,6 +473,7 @@ void taskNAU7802(void*) {
         moving_average_sum += kf_weight;
         last_moving_average = moving_average;
         moving_average = moving_average_sum / MAX_FIFO_SIZE;
+        xSemaphoreGive(xMutex);
       }
 
     } else {
@@ -954,6 +956,9 @@ void setup() {
   ledcWrite(pwmPin, 0);
   last_percent_duty = -999;
   // delay(100);
+
+  // Mutex
+  xMutex = xSemaphoreCreateMutex();
 
 
   buttonQueue = xQueueCreate(10, sizeof(ButtonEvent));

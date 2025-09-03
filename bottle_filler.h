@@ -39,7 +39,7 @@ float bottle_scaling = 1.7;
 #define TFT_BEER 0xD9840D    // Beer color
 const int transparent_color = 0x0120;
 
-
+float kf_weight;
 
 // Fifo
 float moving_average;
@@ -49,7 +49,7 @@ float moving_average_sum;
 float lastDrawnWeight;
 float lastDrawnAverage;
 
-constexpr int SCALE_SPS=80;
+constexpr int SCALE_SPS = 80;
 constexpr int MAX_FIFO_SIZE = SCALE_SPS;
 constexpr float BOTTLE_33CL_MIN = 190.0f;
 constexpr float BOTTLE_33CL_MAX = 265.0f;
