@@ -4,14 +4,16 @@ float saved_beer_gravity;
 int saved_calib_weight;
 
 float beer_gravity;
-double scale_offset;
-double scale_factor;
+double offset, scale;
 int calib_weight;
+int raw_data;
+
 float bottle_weight;
 float ml_to_fill;
 String bottle_size;
 float old_beer_height, new_beer_height;
 int fill_percentage, last_fill_percentage;
+int nb_values_read;
 
 // PWM parameters
 const int pwmPin = 26;         // GPIO de sortie (ex: 26, 25, 19... éviter 34-39 car entrée seule)
@@ -48,8 +50,11 @@ float moving_average_sum;
 
 float lastDrawnWeight;
 float lastDrawnAverage;
+float currentWeight;
+float weight;
 
-constexpr int SCALE_SPS = 80;
+
+constexpr int SCALE_SPS = 40;
 constexpr int MAX_FIFO_SIZE = SCALE_SPS;
 constexpr float BOTTLE_33CL_MIN = 190.0f;
 constexpr float BOTTLE_33CL_MAX = 265.0f;

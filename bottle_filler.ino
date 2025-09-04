@@ -34,8 +34,7 @@ SimpleKalmanFilter kaman_filter = SimpleKalmanFilter(.1, .1, 0.1);
 const uint8_t dataPin = 16;
 const uint8_t clockPin = 17;
 // Mutex for the weight
-SemaphoreHandle_t xMutex;
-float currentWeight = 0;
+SemaphoreHandle_t xMutex = NULL;
 bool debug_print = false;
 // bool debug_print = true;
 
@@ -93,19 +92,22 @@ enum ButtonEvent { BTN_A,
 
 // ---------- Rendu ----------
 static inline void drawMenu() {
+  if (debug_print) Serial.println("debut drawMenu ");
+
   image_in_memory.fillScreen(TFT_BLACK);
   image_in_memory.setTextDatum(middle_left);
   image_in_memory.setFont(&fonts::FreeMonoBold18pt7b);
   image_in_memory.setTextSize(1);
+
 
   int menu_item_height = 37;
   for (int i = 0; i < menuSize; i++) {
     image_in_memory.setTextColor((i == currentSelection) ? TFT_YELLOW : TFT_WHITE, TFT_BLACK);
     image_in_memory.drawString(menuItems[i], 10, 20 + menu_item_height + i * menu_item_height);
   }
+
   bottle_scaling = 1;
   beer_in_memory.createSprite(1 + 24 * bottle_scaling, 1 + bottle_scaling * (72));
-
   draw_beer_bottle(280, 50, 33, 33, TFT_BEER, 0x80, true);
   image_in_memory.pushSprite(0, 0);
   drawWeight();
@@ -245,31 +247,39 @@ void draw_beer_bottle(int x_position, int y_position, int poids_actuel, int poid
 }
 
 static inline void drawWeight() {
-  // Serial.println("drawWeight");
   weight_in_memory.fillScreen(TFT_BLACK);
   weight_in_memory.setFont(&fonts::FreeMonoBold12pt7b);
   weight_in_memory.setTextSize(1);
   weight_in_memory.setCursor(0, 0);
-  weight_in_memory.printf("%.1fg", fabs(currentWeight));
 
-  weight_in_memory.setCursor(100, 0);
-  weight_in_memory.printf("Avg : %.1fg", fabs(moving_average));
+  if (xSemaphoreTake(xMutex, (TickType_t)10) == pdTRUE) {
+    float localCurrentWeight = kf_weight;
+    float localMovingAverage = moving_average;
+    xSemaphoreGive(xMutex);
 
-  //  weight_in_memory.pushSprite(M5.Display.width(), 10);
-  //weight_in_memory.pushSprite(M5.Display.width(), 10);
-  weight_in_memory.pushSprite(10, 10);
+    weight_in_memory.printf("%.1fg", fabs(localCurrentWeight));
+
+    weight_in_memory.setCursor(100, 0);
+    weight_in_memory.printf("Avg : %.1fg", fabs(localMovingAverage));
+
+    //  weight_in_memory.pushSprite(M5.Display.width(), 10);
+    //weight_in_memory.pushSprite(M5.Display.width(), 10);
+    weight_in_memory.pushSprite(10, 10);
+  } else {
+    Serial.println("Timeout mutex drawWeight");
+  }
 }
 
-static inline void drawScreen(const char* title, uint16_t color) {
-  M5.Display.fillScreen(color);
-  M5.Display.setTextDatum(middle_center);
-  M5.Display.setTextColor(TFT_WHITE, color);
-  M5.Display.setFont(&fonts::Font4);
+static inline void drawTare() {
 
-  M5.Display.drawString(title, M5.Display.width() / 2, M5.Display.height() / 2);
-  M5.Display.setFont(&fonts::Font2);
+  M5.Display.fillScreen(TFT_BLACK);
+  M5.Display.setTextDatum(middle_left);
+  M5.Display.setTextColor(TFT_YELLOW, TFT_BLACK);
+  M5.Display.setFont(&fonts::FreeMonoBold18pt7b);
+  M5.Display.setTextSize(1);
 
-  M5.Display.drawString("B button for main menu", M5.Display.width() / 2, M5.Display.height() - 18);
+  M5.Display.drawString("Tare in ", 10, M5.Display.height() / 2);
+  M5.Display.drawString("progress", 10, 37 + M5.Display.height() / 2);
 }
 
 static inline void drawPump(uint16_t color) {
@@ -312,7 +322,7 @@ static inline void drawFilller() {
   fillerState = STATE_WAITING_BOTTLE;
 }
 
-static inline void drawFilling() {
+static inline void drawFilling(int poids, int poids_final) {
   if (debug_print) Serial.println("drawFilling start ");
 
   image_in_memory.fillScreen(TFT_WHITE);
@@ -333,7 +343,7 @@ static inline void drawFilling() {
   button_stop.drawButton();
   beer_in_memory.createSprite(1 + 24 * bottle_scaling, 1 + bottle_scaling * (72));
 
-  draw_beer_bottle(bottle_position_x, bottle_position_y, abs(currentWeight - bottle_weight), mg_to_fill, TFT_BEER, TFT_BLACK, true);
+  draw_beer_bottle(bottle_position_x, bottle_position_y, poids, poids_final, TFT_BEER, TFT_BLACK, true);
   image_in_memory.pushSprite(0, 0);
 }
 
@@ -368,9 +378,9 @@ static inline void drawFinish() {
 }
 
 
-static inline void updateValue(float value, uint16_t background_color) {
-  value_canvas.fillScreen(background_color);
-  value_canvas.setTextColor(TFT_WHITE, background_color);
+static inline void updateValue(float value) {
+  value_canvas.fillScreen(TFT_BLACK);
+  value_canvas.setTextColor(TFT_WHITE, TFT_BLACK);
   value_canvas.setFont(&fonts::Font4);
 
   if (value < 2) {  // Gravity
@@ -381,14 +391,16 @@ static inline void updateValue(float value, uint16_t background_color) {
   value_canvas.pushSprite((M5.Display.width() / 2) - 10, (M5.Display.height() / 2) - 10);
 }
 
-static inline void drawSettingMenu(const char* title, float value, uint16_t background_color) {
-  M5.Display.fillScreen(background_color);
+static inline void drawSettingMenu(const char* title, float value) {
+
+  M5.Display.fillScreen(TFT_BLACK);
   M5.Display.setTextDatum(middle_center);
-  M5.Display.setTextColor(TFT_WHITE, background_color);
-  M5.Display.setFont(&fonts::Font4);
+  M5.Display.setTextColor(TFT_YELLOW, TFT_BLACK);
+  M5.Display.setFont(&fonts::FreeMonoBold18pt7b);
+  M5.Display.setTextSize(1);
 
   M5.Display.drawString(title, (M5.Display.width() / 2), (M5.Display.height() / 2) - 80);
-  updateValue(value, background_color);
+  updateValue(value);
   // if (value < 2) {  // Gravity
   //   image_in_memory.drawFloat(value, 3, M5.Display.width() / 2, M5.Display.height() / 2);
   // } else {  // Calibration weight
@@ -409,62 +421,75 @@ static inline void drawSettingMenu(const char* title, float value, uint16_t back
   button_save.drawButton();
   button_increase.initButtonUL(&M5.Display, button_width * 2, M5.Display.height() - button_height, button_width, button_height, TFT_RED, TFT_BEER, TFT_BLACK, "+", 1, 1);
   button_increase.drawButton();
-
-  // Buttons
-  // M5.Display.fillRoundRect(0, M5.Display.height() - button_height, button_width, button_height, 5, TFT_GREY);
-  // M5.Display.fillRoundRect(button_width, M5.Display.height() - button_height, button_width, button_height, 5, TFT_BLUE);
-  // M5.Display.fillRoundRect(button_width * 2, M5.Display.height() - button_height, button_width, button_height, 5, TFT_GREY);
-
-  // Text
-  // M5.Display.drawString("-", button_width / 2, M5.Display.height() - button_height / 2, TFT_WHITE);
-  // M5.Display.drawString("Ok", button_width + button_width / 2, M5.Display.height() - button_height / 2, TFT_WHITE);
-  // M5.Display.drawString("+", 2 * button_width + button_width / 2, M5.Display.height() - button_height / 2, TFT_WHITE);
 }
 
 void do_tare_scale() {
-  // --- Tare ---
-  int64_t sum = 0;
-  for (int i = 0; i < SCALE_SPS / 2; i++) {
-    if (xSemaphoreTake(xMutex, (TickType_t)10) == pdTRUE) {
-      sum += kf_weight;
-      xSemaphoreGive(xMutex);
-    }
-  }
-  scale_offset = sum / SCALE_SPS / 2;
-  preferences.putDouble("scale_offset", scale_offset);
 
+  Serial.println("Debut Tare");
+
+  double offset = readaverage(100);
+
+  // Save new value
+  preferences.putDouble("offset", offset);
+
+  Serial.println("New offset : ");
+  Serial.println(offset);
   Serial.println("Tare done");
+  appState = STATE_MAIN_MENU;
+  drawMenu();
 }
 
+float readaverage(int nmax) {
+  int nb_values_read = 0;
+  float valtotal = 0.0;
+  while (nb_values_read <= nmax) {
+    if (xSemaphoreTake(xMutex, (TickType_t)10) == pdTRUE) {
+      valtotal += raw_data;
+      xSemaphoreGive(xMutex);
+      nb_values_read += 1;
+    } else {
+      Serial.println("Timeout mutex dans readaverage");
+    }
+    vTaskDelay(pdMS_TO_TICKS(1000 / SCALE_SPS));
+  }
+  return valtotal / nmax;
+}
 
 void do_scale_factor() {
 
-  int64_t sum = 0;
-  for (int i = 0; i < SCALE_SPS * 2; i++) {
-    if (xSemaphoreTake(xMutex, (TickType_t)10) == pdTRUE) {
-      sum += kf_weight;
-      xSemaphoreGive(xMutex);
-    }
-  }
-  int32_t avgReading = sum / (SCALE_SPS * 2);
+  float known_average = readaverage(100);
+  scale = known_average / calib_weight;
 
-  scale_factor = (avgReading - scale_offset) / calib_weight;
+  Serial.println("calib_weight : ");
+  Serial.println(calib_weight);
+
+  Serial.println("New scale : ");
+  Serial.println(scale);
+
+  // Save values in EEPROM
+  preferences.putDouble("scale", scale);
+
+  preferences.putInt("calib_weight", calib_weight);
+
+  Serial.println("Nouvelle calib_weight => sauvegarde");
+  saved_calib_weight = calib_weight;
   Serial.println("Scale factor done");
 }
 
-
 void taskNAU7802(void*) {
-
-  Serial.println("Tâche NAU7802 démarrée");
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  const TickType_t xFrequency = pdMS_TO_TICKS(1000 / SCALE_SPS);  // 25 ms pour 40 SPS
 
   for (;;) {
     if (nau.available()) {
-      int32_t val = nau.read();
-      float weight = (val - scale_offset) / scale_factor;
+      int32_t local_raw_data = nau.read();
+      float local_weight = (local_raw_data - offset) / scale;
 
       if (xSemaphoreTake(xMutex, (TickType_t)10) == pdTRUE) {
         // Kalman filter
-        kf_weight = kaman_filter.updateEstimate(weight);
+        raw_data = local_raw_data;
+        weight = local_weight;
+        kf_weight = kaman_filter.updateEstimate(local_weight);
 
 
         // Fifo and moving average
@@ -474,21 +499,21 @@ void taskNAU7802(void*) {
         last_moving_average = moving_average;
         moving_average = moving_average_sum / MAX_FIFO_SIZE;
         xSemaphoreGive(xMutex);
+      } else {
+        Serial.println("Timeout mutex NAU7802");
       }
 
     } else {
-      Serial.println("NAU7802 non prêt");
-      vTaskDelay(pdMS_TO_TICKS(1000));
+      Serial.println("NAU7802 non prêt in taskNAU7802");
+      vTaskDelay(pdMS_TO_TICKS(20));
     }
 
     // 40 SPS
     // vTaskDelay(pdMS_TO_TICKS(25));
     // 10 SPS
-    vTaskDelay(pdMS_TO_TICKS(1000 / SCALE_SPS));
+    vTaskDelayUntil(&xLastWakeTime, xFrequency);  // Exécution régulière
   }
 }
-
-
 
 void taskButtons(void*) {
   const int longPressDelay = 1000;  // ms avant auto-repeat
@@ -552,87 +577,108 @@ void taskButtons(void*) {
       xQueueSend(buttonQueue, &e, 0);
     }
 
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(pdMS_TO_TICKS(100));
   }
 }
+
+
 void taskFiller(void*) {
+
   for (;;) {
     bool bottle_filled = false;
+    float local_currentWeight = 0;
+    float local_moving_average = 0;
 
-    if ((fillerState == STATE_WAITING_BOTTLE) && (appState == STATE_FILLER)) {
-      // a new bottle is on the scale
-      setPumpPWMpercent(0);
-      ledcWrite(pwmPin, 0);
-      // Lets find which kind
-      if ((fabs(moving_average - last_moving_average) < 0.1f) && (fabs(moving_average - currentWeight) < 0.1f)) {
-        if ((moving_average > BOTTLE_33CL_MIN) && (moving_average < BOTTLE_33CL_MAX)) {
-          if (debug_print) Serial.println("33cl detected");
-          // display_detected_bottle("330");
-          bottle_size = "33cl";
-          mg_to_fill = 325.0 * beer_gravity;
-          bottle_weight = moving_average;
-          fillerState = STATE_FILLING_BOTTLE;
-          fill_percentage = 0;
-          last_fill_percentage = -99999;
-          // 50
-        } else if ((moving_average > BOTTLE_50CL_MIN) && (moving_average < BOTTLE_50CL_MAX)) {
-          if (debug_print) Serial.println("50cl detected");
-          // display_detected_bottle("500");
-          bottle_size = "50cl";
-          mg_to_fill = 495.0 * beer_gravity;
-          bottle_weight = moving_average;
-          fillerState = STATE_FILLING_BOTTLE;
-          fill_percentage = 0;
-          last_fill_percentage = -99999;
-          // 75
-        } else if ((moving_average > BOTTLE_75CL_MIN) && (moving_average < BOTTLE_75CL_MAX)) {
-          if (debug_print) Serial.println("75cl detected");
-          // display_detected_bottle("750");
-          bottle_size = "75cl";
-          mg_to_fill = 745.0 * beer_gravity;
-          bottle_weight = moving_average;
-          fillerState = STATE_FILLING_BOTTLE;
-          fill_percentage = 0;
-          last_fill_percentage = -99999;
+    if (appState == STATE_FILLER) {
+      if (xSemaphoreTake(xMutex, (TickType_t)25) == pdTRUE) {
+        local_currentWeight = kf_weight;
+        local_moving_average = moving_average;
+        xSemaphoreGive(xMutex);
+
+        if (fillerState == STATE_WAITING_BOTTLE) {
+
+          // a new bottle is on the scale
+          setPumpPWMpercent(0);
+          ledcWrite(pwmPin, 0);
+          // Lets find which kind
+          if (fabs(local_moving_average - local_currentWeight) < 0.1f) {
+            if ((local_moving_average > BOTTLE_33CL_MIN) && (local_moving_average < BOTTLE_33CL_MAX)) {
+              if (debug_print) Serial.println("33cl detected");
+              // display_detected_bottle("330");
+              bottle_size = "33cl";
+              mg_to_fill = 325.0 * beer_gravity;
+              bottle_weight = local_moving_average;
+              fillerState = STATE_FILLING_BOTTLE;
+              fill_percentage = 0;
+              last_fill_percentage = -99999;
+              // 50
+            } else if ((local_moving_average > BOTTLE_50CL_MIN) && (local_moving_average < BOTTLE_50CL_MAX)) {
+              if (debug_print) Serial.println("50cl detected");
+              // display_detected_bottle("500");
+              bottle_size = "50cl";
+              mg_to_fill = 495.0 * beer_gravity;
+              bottle_weight = local_moving_average;
+              fillerState = STATE_FILLING_BOTTLE;
+              fill_percentage = 0;
+              last_fill_percentage = -99999;
+              // 75
+            } else if ((local_moving_average > BOTTLE_75CL_MIN) && (local_moving_average < BOTTLE_75CL_MAX)) {
+              if (debug_print) Serial.println("75cl detected");
+              // display_detected_bottle("750");
+              bottle_size = "75cl";
+              mg_to_fill = 745.0 * beer_gravity;
+              bottle_weight = local_moving_average;
+              fillerState = STATE_FILLING_BOTTLE;
+              fill_percentage = 0;
+              last_fill_percentage = -99999;
+            }
+          }
+        } else if ((fillerState == STATE_FILLING_BOTTLE) && (appState == STATE_FILLER)) {
+
+          if ((fabs(fill_percentage - last_fill_percentage)) > 0.5) drawFilling(kf_weight - bottle_weight, mg_to_fill);
+
+          last_fill_percentage = fill_percentage;
+
+          fill_percentage = int(abs(local_currentWeight - bottle_weight) * 100 / mg_to_fill);
+
+          // Smooth start
+          if (fill_percentage < 5) setPumpPWMpercent(low_duty);
+
+          // Full spedd
+          if ((fill_percentage > 5) && (fill_percentage < 85)) setPumpPWMpercent(full_duty);
+
+          // Smooth finish
+          if (fill_percentage > 80) setPumpPWMpercent(low_duty);
+
+
+          // Bottle is filled
+          if (local_currentWeight >= (bottle_weight + mg_to_fill)) {
+            setPumpPWMpercent(0);
+            ledcWrite(pwmPin, 0);
+
+            fillerState = STATE_FILLED_BOTTLE;
+            drawFinish();
+            bottle_filled = true;
+          }
+          // Waiting for the bottle to be removed
+        } else if ((fillerState == STATE_FILLED_BOTTLE) && (appState == STATE_FILLER) && (local_moving_average < 10)) {
+          setPumpPWMpercent(0);
+          ledcWrite(pwmPin, 0);
+          fillerState = STATE_START;
+          bottle_filled = false;
+          drawFilller();
         }
+        if (bottle_filled) {
+          vTaskDelay(pdMS_TO_TICKS(150));
+        } else {
+          vTaskDelay(pdMS_TO_TICKS(1000 / SCALE_SPS));
+        }
+      } else {
+        Serial.println("Timeout mutex dans taskFiller");
+        vTaskDelay(pdMS_TO_TICKS(10));
       }
-    } else if ((fillerState == STATE_FILLING_BOTTLE) && (appState == STATE_FILLER)) {
-      if (debug_print) Serial.println("Pump On in taskFiller");
-
-      if ((fabs(fill_percentage - last_fill_percentage)) > 0.5) drawFilling();
-
-      last_fill_percentage = fill_percentage;
-      fill_percentage = int(abs(currentWeight - bottle_weight) * 100 / mg_to_fill);
-
-      // Smooth start
-      if (fill_percentage < 5) setPumpPWMpercent(low_duty);
-
-      // Full spedd
-      if ((fill_percentage > 5) && (fill_percentage < 85)) setPumpPWMpercent(full_duty);
-
-      // Smooth finish
-      if (fill_percentage > 80) setPumpPWMpercent(low_duty);
-      // Bottle is filled
-      if (currentWeight >= (bottle_weight + mg_to_fill)) {
-        setPumpPWMpercent(0);
-        ledcWrite(pwmPin, 0);
-
-        fillerState = STATE_FILLED_BOTTLE;
-        drawFinish();
-        bottle_filled = true;
-      }
-      // Waiting for the bottle to be removed
-    } else if ((fillerState == STATE_FILLED_BOTTLE) && (appState == STATE_FILLER) && (moving_average < 10)) {
-      setPumpPWMpercent(0);
-      ledcWrite(pwmPin, 0);
-      fillerState = STATE_START;
-      bottle_filled = false;
-      drawFilller();
-    }
-    if (bottle_filled) {
-      vTaskDelay(pdMS_TO_TICKS(150));
     } else {
-      vTaskDelay(pdMS_TO_TICKS(1000 / SCALE_SPS));
+      vTaskDelay(pdMS_TO_TICKS(10));  // Ajoute un délai ici si pas en mode FILLER
     }
   }
 }
@@ -644,30 +690,41 @@ void taskMenu(void*) {
       if (appState == STATE_MAIN_MENU) {
         switch (evt) {
           case BTN_A:
-            if (debug_print) Serial.println("BTN_A");
             currentSelection = (currentSelection - 1 + menuSize) % menuSize;
+            if (debug_print) Serial.println("BTN_A");
+            if (debug_print) Serial.print("currentSelection ");
+            if (debug_print) Serial.println(currentSelection);
+
             break;
           case BTN_C:
-            if (debug_print) Serial.println("BTN_C");
             currentSelection = (currentSelection + 1) % menuSize;
+            if (debug_print) Serial.println("BTN_C");
+            if (debug_print) Serial.print("currentSelection ");
+            if (debug_print) Serial.println(currentSelection);
+
             break;
           case BTN_B:
             if (debug_print) Serial.println("BTN_B");
             switch (currentSelection) {
               case 0:
+                if (debug_print) Serial.println("going to STATE_FILLER");
                 appState = STATE_FILLER;
                 fillerState = STATE_START;
                 break;
               case 1:
+                if (debug_print) Serial.println("going to STATE_PUMP");
                 appState = STATE_PUMP;
                 break;
               case 2:
+                if (debug_print) Serial.println("going to STATE_GRAVITY");
                 appState = STATE_GRAVITY;
                 break;
               case 3:
+                if (debug_print) Serial.println("going to STATE_TARE");
                 appState = STATE_TARE;
                 break;
               case 4:
+                if (debug_print) Serial.println("going to STATE_CALIBRATION");
                 appState = STATE_CALIBRATION;
                 break;
             }
@@ -677,19 +734,19 @@ void taskMenu(void*) {
         switch (evt) {
           case BTN_A:
             beer_gravity = beer_gravity - 0.001;
-            updateValue(beer_gravity, TFT_BLACK);
+            updateValue(beer_gravity);
             break;
           case BTN_A_LONG_1s:
             beer_gravity = beer_gravity - 0.01;
-            updateValue(beer_gravity, TFT_BLACK);
+            updateValue(beer_gravity);
             break;
           case BTN_C:
             beer_gravity = beer_gravity + 0.001;
-            updateValue(beer_gravity, TFT_BLACK);
+            updateValue(beer_gravity);
             break;
           case BTN_C_LONG_1s:
             beer_gravity = beer_gravity + 0.01;
-            updateValue(beer_gravity, TFT_BLACK);
+            updateValue(beer_gravity);
             break;
           case BTN_B:
             // Save beer_gravity in EEPROM
@@ -705,35 +762,28 @@ void taskMenu(void*) {
         switch (evt) {
           case BTN_A:
             calib_weight = calib_weight - 1;
-            updateValue(calib_weight, TFT_BLACK);
+            updateValue(calib_weight);
             break;
           case BTN_A_LONG_1s:
             calib_weight = calib_weight - 10;
-            updateValue(calib_weight, TFT_BLACK);
+            updateValue(calib_weight);
             break;
           case BTN_C:
             calib_weight = calib_weight + 1;
-            updateValue(calib_weight, TFT_BLACK);
+            updateValue(calib_weight);
             break;
           case BTN_C_LONG_1s:
             calib_weight = calib_weight + 10;
-            updateValue(calib_weight, TFT_BLACK);
+            updateValue(calib_weight);
             break;
           case BTN_B:
 
             // Do the calibration with calib_weight
-            if (calib_weight != saved_calib_weight) {
+            // if (calib_weight != saved_calib_weight) {
 
-              // Get calibration parameters
-              do_scale_factor();
-
-              // Save values in EEPROM
-              preferences.putDouble("scale_factor", scale_factor);
-              preferences.putInt("calib_weight", calib_weight);
-
-              Serial.println("Nouvelle calib_weight => sauvegarde");
-              saved_calib_weight = calib_weight;
-            }
+            // Get calibration parameters
+            do_scale_factor();
+            // }
             appState = STATE_MAIN_MENU;
             break;
         }
@@ -754,7 +804,6 @@ void taskMenu(void*) {
         if (evt == BTN_B) {
           // Serial.println("[Screen] back to main menu");
           if (appState == STATE_TARE) {
-            // do_scale_factor();
             // Tare Scale
             do_tare_scale();
           }
@@ -762,18 +811,20 @@ void taskMenu(void*) {
         }
       }
     }
+    vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
 
 void taskDisplay(void*) {
   AppState lastState = (AppState)-1;
   int lastSelection = -1;
-
   FillerState lastFillerState = (FillerState)-1;
-
+  // appState = STATE_MAIN_MENU;
   for (;;) {
-    bool needRedraw = false;
 
+    bool needRedraw = false;
+    float local_currentWeight = 0;
+    float local_moving_average = 0;
     if (appState != lastState || currentSelection != lastSelection) {
       needRedraw = true;
       switch (appState) {
@@ -782,33 +833,42 @@ void taskDisplay(void*) {
           break;
         case STATE_FILLER: drawFilller(); break;
         case STATE_PUMP: drawPump(TFT_BLACK); break;
-        case STATE_GRAVITY: drawSettingMenu("Final Gravity", beer_gravity, TFT_BLACK); break;
-        case STATE_TARE: drawScreen("Tare", TFT_BLACK); break;
+        case STATE_GRAVITY: drawSettingMenu("Final Gravity", beer_gravity); break;
+        case STATE_TARE:
+          drawTare();
+          do_tare_scale();
+          break;
         case STATE_CALIBRATION:
-          drawSettingMenu("Calibration Weight", calib_weight, TFT_BLACK);
+          drawSettingMenu("Calibration Weight", calib_weight);
           break;
       }
       lastState = appState;
       lastSelection = currentSelection;
     }
 
-    // Récupérer nouvelle mesure
-    float newWeight;
-    if (weightQueue != NULL && xQueueReceive(weightQueue, &newWeight, 0) == pdTRUE) {
-      currentWeight = newWeight;
-      // Only redraw weight/average if they changed significantly
-      if (appState == STATE_MAIN_MENU && (fabs(currentWeight - lastDrawnWeight) > 0.1f || fabs(moving_average - lastDrawnAverage) > 0.1f)) {
-        needRedraw = true;
-        drawWeight();
-        lastDrawnWeight = currentWeight;
-        lastDrawnAverage = moving_average;
+    if (appState == STATE_MAIN_MENU) {
+      // Prenez le mutex avec un timeout plus long
+      if (xSemaphoreTake(xMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        local_currentWeight = kf_weight;
+        local_moving_average = moving_average;
+        xSemaphoreGive(xMutex);
+
+        if ((fabs(local_currentWeight - lastDrawnWeight) > 0.01f) || (fabs(local_moving_average - lastDrawnAverage) > 0.01f)) {
+          lastDrawnWeight = local_currentWeight;
+          lastDrawnAverage = local_moving_average;
+          needRedraw = true;
+          drawWeight();
+        }
+      } else {
+        Serial.println("Timeout mutex dans taskDisplay");
       }
     }
 
-    // Only delay if something was redrawn
-    vTaskDelay(pdMS_TO_TICKS(needRedraw ? 40 : 10));
+    // Délai adaptatif
+    vTaskDelay(pdMS_TO_TICKS(needRedraw ? 100 : 50));
   }
 }
+
 
 // Duty cycle to control the pump
 // --- fonction pour régler PWM en % ---
@@ -829,7 +889,14 @@ void setPumpPWMpercent(float percent_duty) {
 // ---------- Setup / Loop ----------
 void setup() {
   auto cfg = M5.config();
+  // Mutex
+  xMutex = xSemaphoreCreateMutex();
+  kf_weight = 0.0;
+  currentWeight = 0.0;
+  weight = 0.0;
+
   M5.begin(cfg);
+  M5.Display.setRotation(1);
 
   Serial.begin(115200);
   Wire.begin(21, 22, 100000);  // SDA=21, SCL=22, 100kHz
@@ -854,7 +921,7 @@ void setup() {
   }
 
   // Config LDO, gain et rate
-  nau.setLDO(NAU7802_3V0);
+  nau.setLDO(NAU7802_3V3);
   nau.setGain(NAU7802_GAIN_128);
 
   Serial.print("Conversion rate set to ");
@@ -881,6 +948,12 @@ void setup() {
       break;
   }
 
+  // Take SCALE_SPS readings to flush out readings
+  for (uint8_t i = 0; i < SCALE_SPS; i++) {
+    while (!nau.available()) delay(1);
+    nau.read();
+  }
+
   while (!nau.calibrate(NAU7802_CALMOD_INTERNAL)) {
     Serial.println("Failed to calibrate internal offset, retrying!");
     delay(1000);
@@ -893,8 +966,9 @@ void setup() {
   }
   Serial.println("Calibrated system offset");
 
+
+
   Serial.println("NAU7802 initialisé !");
-  M5.Display.setRotation(1);
 
   // Sprite 8 bits pour éviter 0x0
   image_in_memory.setColorDepth(8);
@@ -918,32 +992,25 @@ void setup() {
 
 
   preferences.begin("filler", false);
-  preferences.clear();
-
-  scale_offset = preferences.getDouble("scale_offset", -954218);
-  scale_factor = preferences.getDouble("scale_factor", -1121.379150);
-  saved_calib_weight = preferences.getInt("calib_weight", 185);
+  // preferences.clear();
   saved_beer_gravity = preferences.getFloat("beer_gravity", 1.00);
+  saved_calib_weight = preferences.getInt("calib_weight", 185);
+
+  // scale_offset = preferences.getFloat("scale_offset", -954218);
+  // scale_factor = preferences.getFloat("scale_factor", -1121.379150);
+
+  offset = preferences.getDouble("offset", -100);
+  scale = preferences.getDouble("scale", -100);
+  Serial.print("Loaded preferences -  offset : ");
+  Serial.print(offset);
+  Serial.print(" - scale :");
+  Serial.println(scale);
+
 
 
   calib_weight = saved_calib_weight;
   beer_gravity = saved_beer_gravity;
 
-  // Scale Factor
-  Serial.println("Scale Factor now !");
-  do_scale_factor();
-
-  Serial.println("Tare now !");
-  // Tare Scale
-  do_tare_scale();
-
-  // Créer la queue
-  weightQueue = xQueueCreate(SCALE_SPS, sizeof(float));
-  if (weightQueue == NULL) {
-    Serial.println("ERREUR: Impossible de créer la queue");
-  } else {
-    Serial.println("Queue créée avec succès");
-  }
 
   // Intro animée
   // intro();
@@ -957,18 +1024,27 @@ void setup() {
   last_percent_duty = -999;
   // delay(100);
 
-  // Mutex
-  xMutex = xSemaphoreCreateMutex();
 
 
   buttonQueue = xQueueCreate(10, sizeof(ButtonEvent));
-  xTaskCreatePinnedToCore(taskButtons, "TaskButtons", 4096, nullptr, 2, &taskButtonsHandle, 0);
-  xTaskCreatePinnedToCore(taskMenu, "TaskMenu", 4096, nullptr, 1, &taskMenuHandle, 1);
-  xTaskCreatePinnedToCore(taskDisplay, "TaskDisplay", 4096, nullptr, 2, &taskDisplayHandle, 1);
-  xTaskCreatePinnedToCore(taskNAU7802, "NAU7802_Task", 4096, nullptr, 3, &taskNAU7802Handle, 1);
-  xTaskCreatePinnedToCore(taskFiller, "Filler_Task", 4096, nullptr, 3, &taskFillerHandle, 1);
+  // xTaskCreatePinnedToCore(taskButtons, "TaskButtons", 4096, nullptr, 1, &taskButtonsHandle, 0);
+  // xTaskCreatePinnedToCore(taskMenu, "TaskMenu", 4096, nullptr, 1, &taskMenuHandle, 1);
+  // xTaskCreatePinnedToCore(taskDisplay, "TaskDisplay", 4096, nullptr, 1, &taskDisplayHandle, 1);
+  // xTaskCreatePinnedToCore(taskNAU7802, "NAU7802_Task", 4096, nullptr, 2, &taskNAU7802Handle, 1);
+  // xTaskCreatePinnedToCore(taskFiller, "Filler_Task", 4096, nullptr, 2, &taskFillerHandle, 1);
 
   Serial.println("Starting Filler Machine");
+  appState = STATE_MAIN_MENU;
+
+
+  xTaskCreate(taskButtons, "TaskButtons", 4096, nullptr, 1, &taskButtonsHandle);
+  xTaskCreate(taskMenu, "TaskMenu", 4096, nullptr, 1, &taskMenuHandle);
+  xTaskCreate(taskDisplay, "TaskDisplay", 8192, nullptr, 1, &taskDisplayHandle);
+  xTaskCreate(taskNAU7802, "NAU7802_Task", 8192, nullptr, 3, &taskNAU7802Handle);
+  xTaskCreate(taskFiller, "Filler_Task", 8192, nullptr, 2, &taskFillerHandle);
+
+
+  //  xTaskCreate( vTaskCode, "NAME", STACK_SIZE, &ucParameterToPass, tskIDLE_PRIORITY, &xHandle );
 }
 
 
