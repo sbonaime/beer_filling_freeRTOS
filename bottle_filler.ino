@@ -1,7 +1,7 @@
 #include "bottle_filler.h"
 #include <M5Unified.h>
-#include <Wire.h>
 #include <M5GFX.h>
+#include <Wire.h>
 #include <Preferences.h>
 #include <FIFObuf.h>
 #include <SimpleKalmanFilter.h>
@@ -13,7 +13,8 @@
 // https://docs.m5stack.com/en/arduino/arduino_board
 
 // Librairies
-// M5Unified
+// M5Unified 0.2.7
+// M5GFX 0.2.9
 // FIFObuf https://github.com/pervu/FIFObuf
 // SimpleKalmanFilter https://github.com/denyssene/SimpleKalmanFilter
 
@@ -427,10 +428,10 @@ void do_tare_scale() {
 
   Serial.println("Debut Tare");
 
-  double offset = readaverage(100);
+  offset = readaverage(200);
 
   // Save new value
-  preferences.putDouble("offset", offset);
+  preferences.putFloat("offset", offset);
 
   Serial.println("New offset : ");
   Serial.println(offset);
@@ -457,7 +458,7 @@ float readaverage(int nmax) {
 
 void do_scale_factor() {
 
-  float known_average = readaverage(100);
+  float known_average = readaverage(200);
   scale = known_average / calib_weight;
 
   Serial.println("calib_weight : ");
@@ -467,8 +468,7 @@ void do_scale_factor() {
   Serial.println(scale);
 
   // Save values in EEPROM
-  preferences.putDouble("scale", scale);
-
+  preferences.putFloat("scale", scale);
   preferences.putInt("calib_weight", calib_weight);
 
   Serial.println("Nouvelle calib_weight => sauvegarde");
@@ -839,7 +839,7 @@ void taskDisplay(void*) {
           do_tare_scale();
           break;
         case STATE_CALIBRATION:
-          drawSettingMenu("Calibration Weight", calib_weight);
+          drawSettingMenu("Calib Weight", calib_weight);
           break;
       }
       lastState = appState;
@@ -899,8 +899,10 @@ void setup() {
   M5.Display.setRotation(1);
 
   Serial.begin(115200);
-  Wire.begin(21, 22, 100000);  // SDA=21, SCL=22, 100kHz
+  // Wire.begin(21, 22, 100000);  // SDA=21, SCL=22, 100kHz
   delay(1000);
+
+  Wire.begin();  // SDA, SCL
 
   Serial.println("Scan I2C...");
   for (byte address = 1; address < 127; address++) {
@@ -911,7 +913,8 @@ void setup() {
     }
   }
 
-  Wire.begin(21, 22);  // SDA, SCL
+  // Wire.begin(21, 22);  // SDA, SCL
+  Wire.begin();  // SDA, SCL
 
 
 
@@ -999,8 +1002,8 @@ void setup() {
   // scale_offset = preferences.getFloat("scale_offset", -954218);
   // scale_factor = preferences.getFloat("scale_factor", -1121.379150);
 
-  offset = preferences.getDouble("offset", -100);
-  scale = preferences.getDouble("scale", -100);
+  offset = preferences.getFloat("offset", -81.58);
+  scale = preferences.getFloat("scale", -1118.10);
   Serial.print("Loaded preferences -  offset : ");
   Serial.print(offset);
   Serial.print(" - scale :");

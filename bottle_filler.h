@@ -4,7 +4,8 @@ float saved_beer_gravity;
 int saved_calib_weight;
 
 float beer_gravity;
-double offset, scale;
+
+float scale, offset;
 int calib_weight;
 int raw_data;
 
@@ -54,7 +55,7 @@ float currentWeight;
 float weight;
 
 
-constexpr int SCALE_SPS = 40;
+constexpr int SCALE_SPS = 20;
 constexpr int MAX_FIFO_SIZE = SCALE_SPS;
 constexpr float BOTTLE_33CL_MIN = 190.0f;
 constexpr float BOTTLE_33CL_MAX = 265.0f;
