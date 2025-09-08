@@ -95,22 +95,22 @@ enum ButtonEvent { BTN_A,
 static inline void drawMenu() {
   if (debug_print) Serial.println("debut drawMenu ");
 
-  image_in_memory.fillScreen(TFT_BLACK);
-  image_in_memory.setTextDatum(middle_left);
-  image_in_memory.setFont(&fonts::FreeMonoBold18pt7b);
-  image_in_memory.setTextSize(1);
+  M5.Display.fillScreen(TFT_BLACK);
+  M5.Display.setTextDatum(middle_left);
+  M5.Display.setFont(&fonts::FreeMonoBold18pt7b);
+  M5.Display.setTextSize(1);
 
 
   int menu_item_height = 37;
   for (int i = 0; i < menuSize; i++) {
-    image_in_memory.setTextColor((i == currentSelection) ? TFT_YELLOW : TFT_WHITE, TFT_BLACK);
-    image_in_memory.drawString(menuItems[i], 10, 20 + menu_item_height + i * menu_item_height);
+    M5.Display.setTextColor((i == currentSelection) ? TFT_YELLOW : TFT_WHITE, TFT_BLACK);
+    M5.Display.drawString(menuItems[i], 10, 20 + menu_item_height + i * menu_item_height);
+    break;
   }
 
   bottle_scaling = 1;
   beer_in_memory.createSprite(1 + 24 * bottle_scaling, 1 + bottle_scaling * (72));
-  draw_beer_bottle(280, 50, 33, 33, TFT_BEER, 0x80, true);
-  image_in_memory.pushSprite(0, 0);
+  draw_beer_bottle(280, 50, 33, 33, TFT_BEER, 0x80, false);
   drawWeight();
 }
 
@@ -717,8 +717,6 @@ void taskMenu(void*) {
             if (debug_print) Serial.println("BTN_A");
             if (debug_print) Serial.print("currentSelection ");
             if (debug_print) Serial.println(currentSelection);
-
-            break;
           case BTN_C:
             currentSelection = (currentSelection + 1) % menuSize;
             if (debug_print) Serial.println("BTN_C");
@@ -840,7 +838,7 @@ void taskDisplay(void*) {
     bool needRedraw = false;
     float local_currentWeight = 0;
     float local_moving_average = 0;
-    float seuil_affichage = 1;
+    float seuil_affichage = 0.1;
 
     if (appState != lastState || currentSelection != lastSelection) {
       needRedraw = true;
@@ -1048,21 +1046,8 @@ void setup() {
 
 
   buttonQueue = xQueueCreate(10, sizeof(ButtonEvent));
-  // xTaskCreatePinnedToCore(taskButtons, "TaskButtons", 4096, nullptr, 1, &taskButtonsHandle, 0);
-  // xTaskCreatePinnedToCore(taskMenu, "TaskMenu", 4096, nullptr, 1, &taskMenuHandle, 1);
-  // xTaskCreatePinnedToCore(taskDisplay, "TaskDisplay", 4096, nullptr, 1, &taskDisplayHandle, 1);
-  // xTaskCreatePinnedToCore(taskNAU7802, "NAU7802_Task", 4096, nullptr, 2, &taskNAU7802Handle, 1);
-  // xTaskCreatePinnedToCore(taskFiller, "Filler_Task", 4096, nullptr, 2, &taskFillerHandle, 1);
-
   Serial.println("Starting Filler Machine");
   appState = STATE_MAIN_MENU;
-
-
-  // xTaskCreate(taskButtons, "TaskButtons", 4096, nullptr, 1, &taskButtonsHandle);
-  // xTaskCreate(taskMenu, "TaskMenu", 4096, nullptr, 1, &taskMenuHandle);
-  // xTaskCreate(taskDisplay, "TaskDisplay", 8192, nullptr, 1, &taskDisplayHandle);
-  // xTaskCreate(taskNAU7802, "NAU7802_Task", 8192, nullptr, 3, &taskNAU7802Handle);
-  // xTaskCreate(taskFiller, "Filler_Task", 8192, nullptr, 2, &taskFillerHandle);
 
 
   // --- Tâches sur le CORE 0 (UI et moins critiques) ---
@@ -1073,9 +1058,9 @@ void setup() {
   // --- Tâches sur le CORE 1 (Temps réel et critiques) ---
   xTaskCreatePinnedToCore(taskNAU7802, "NAU7802_Task", 8192, nullptr, 3, &taskNAU7802Handle, 1);
   xTaskCreatePinnedToCore(taskFiller, "Filler_Task", 8192, nullptr, 2, &taskFillerHandle, 1);
+  vTaskDelete(NULL);
 }
 
-
 void loop() {
-  // Tout est géré par FreeRTOS
+  // Cette fonction ne sera jamais atteinte
 }
