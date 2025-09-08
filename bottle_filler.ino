@@ -424,49 +424,58 @@ static inline void drawSettingMenu(const char* title, float value) {
   button_increase.drawButton();
 }
 
-void do_tare_scale() {
 
-  Serial.println("Debut Tare");
+double sum_N_readings() {
+  const int N = 300;
+  static int32_t buf[N];
+  int count = 0;
 
-  offset = readaverage(200);
-
-  // Save new value
-  preferences.putFloat("offset", offset);
-
-  Serial.println("New offset : ");
-  Serial.println(offset);
-  Serial.println("Tare done");
-  appState = STATE_MAIN_MENU;
-  drawMenu();
-}
-
-float readaverage(int nmax) {
-  int nb_values_read = 0;
-  float valtotal = 0.0;
-  while (nb_values_read <= nmax) {
-    if (xSemaphoreTake(xMutex, (TickType_t)10) == pdTRUE) {
-      valtotal += raw_data;
-      xSemaphoreGive(xMutex);
-      nb_values_read += 1;
+  while (count < N) {
+    if (nau.available()) {
+      buf[count++] = nau.read();
     } else {
-      Serial.println("Timeout mutex dans readaverage");
+      Serial.println("nau not available");
     }
     vTaskDelay(pdMS_TO_TICKS(1000 / SCALE_SPS));
   }
-  return valtotal / nmax;
+
+  std::sort(buf, buf + N);
+  int start = N / 4, end = N * 3 / 4;
+  double sum = 0.0;
+  for (int i = start; i < end; i++) sum += buf[i];
+  return sum;
+}
+void do_tare_scale() {
+  calibrationInProgress = true;
+  double sum = sum_N_readings();
+
+  Serial.println("Debut Tare");
+  double mean_core = sum / double(end - start);
+
+  offset = (float)mean_core;
+  preferences.putFloat("offset", offset);
+
+  appState = STATE_MAIN_MENU;
+  calibrationInProgress = false;
+  drawMenu();
 }
 
 void do_scale_factor() {
+  Serial.println("Debut Calibration");
 
-  float known_average = readaverage(200);
-  scale = known_average / calib_weight;
+  calibrationInProgress = true;
+  double sum = sum_N_readings();
+
+  double rawWithMass = sum / double(end - start);
+  double newScale = (rawWithMass - offset) / calib_weight;
 
   Serial.println("calib_weight : ");
   Serial.println(calib_weight);
 
   Serial.println("New scale : ");
-  Serial.println(scale);
+  Serial.println(newScale);
 
+  scale = newScale;
   // Save values in EEPROM
   preferences.putFloat("scale", scale);
   preferences.putInt("calib_weight", calib_weight);
@@ -474,6 +483,7 @@ void do_scale_factor() {
   Serial.println("Nouvelle calib_weight => sauvegarde");
   saved_calib_weight = calib_weight;
   Serial.println("Scale factor done");
+  calibrationInProgress = false;
 }
 
 void taskNAU7802(void*) {
@@ -481,31 +491,33 @@ void taskNAU7802(void*) {
   const TickType_t xFrequency = pdMS_TO_TICKS(1000 / SCALE_SPS);  // 25 ms pour 40 SPS
 
   for (;;) {
-    if (nau.available()) {
-      int32_t local_raw_data = nau.read();
-      float local_weight = (local_raw_data - offset) / scale;
+    if (!calibrationInProgress) {
+      if (nau.available()) {
+        int32_t local_raw_data = nau.read();
+        float local_weight = (local_raw_data - offset) / scale;
 
-      if (xSemaphoreTake(xMutex, (TickType_t)10) == pdTRUE) {
-        // Kalman filter
-        raw_data = local_raw_data;
-        weight = local_weight;
-        kf_weight = kaman_filter.updateEstimate(local_weight);
+        if (xSemaphoreTake(xMutex, (TickType_t)10) == pdTRUE) {
+          // Kalman filter
+          raw_data = local_raw_data;
+          weight = local_weight;
+          kf_weight = kaman_filter.updateEstimate(local_weight);
 
 
-        // Fifo and moving average
-        moving_average_sum -= fifo_scale.pop();
-        fifo_scale.push(kf_weight);
-        moving_average_sum += kf_weight;
-        last_moving_average = moving_average;
-        moving_average = moving_average_sum / MAX_FIFO_SIZE;
-        xSemaphoreGive(xMutex);
+          // Fifo and moving average
+          moving_average_sum -= fifo_scale.pop();
+          fifo_scale.push(kf_weight);
+          moving_average_sum += kf_weight;
+          last_moving_average = moving_average;
+          moving_average = moving_average_sum / MAX_FIFO_SIZE;
+          xSemaphoreGive(xMutex);
+        } else {
+          Serial.println("Timeout mutex NAU7802");
+        }
+
       } else {
-        Serial.println("Timeout mutex NAU7802");
+        Serial.println("NAU7802 non prêt in taskNAU7802");
+        vTaskDelay(pdMS_TO_TICKS(20));
       }
-
-    } else {
-      Serial.println("NAU7802 non prêt in taskNAU7802");
-      vTaskDelay(pdMS_TO_TICKS(20));
     }
 
     // 40 SPS
@@ -516,6 +528,7 @@ void taskNAU7802(void*) {
 }
 
 void taskButtons(void*) {
+  // const int verylongPressDelay = 2000;  // ms avant auto-repeat
   const int longPressDelay = 1000;  // ms avant auto-repeat
   const int repeatInterval = 200;   // ms entre chaque incrément auto-repeat
   static uint32_t lastRepeatA = 0;
@@ -777,13 +790,7 @@ void taskMenu(void*) {
             updateValue(calib_weight);
             break;
           case BTN_B:
-
-            // Do the calibration with calib_weight
-            // if (calib_weight != saved_calib_weight) {
-
-            // Get calibration parameters
             do_scale_factor();
-            // }
             appState = STATE_MAIN_MENU;
             break;
         }
@@ -888,12 +895,15 @@ void setPumpPWMpercent(float percent_duty) {
 
 // ---------- Setup / Loop ----------
 void setup() {
+
+
   auto cfg = M5.config();
   // Mutex
   xMutex = xSemaphoreCreateMutex();
   kf_weight = 0.0;
   currentWeight = 0.0;
   weight = 0.0;
+  calibrationInProgress = false;
 
   M5.begin(cfg);
   M5.Display.setRotation(1);
@@ -912,9 +922,6 @@ void setup() {
       Serial.println(address, HEX);
     }
   }
-
-  // Wire.begin(21, 22);  // SDA, SCL
-  Wire.begin();  // SDA, SCL
 
 
 

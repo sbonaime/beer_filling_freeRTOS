@@ -1,20 +1,12 @@
 // Couleurs 8bits
 // https://www.rapidtables.com/web/color/RGB_Color.html
-float saved_beer_gravity;
-int saved_calib_weight;
 
-float beer_gravity;
 
-float scale, offset;
-int calib_weight;
-int raw_data;
 
-float bottle_weight;
-float ml_to_fill;
-String bottle_size;
-float old_beer_height, new_beer_height;
-int fill_percentage, last_fill_percentage;
-int nb_values_read;
+
+
+
+
 
 // PWM parameters
 const int pwmPin = 26;         // GPIO de sortie (ex: 26, 25, 19... éviter 34-39 car entrée seule)
@@ -54,9 +46,26 @@ float lastDrawnAverage;
 float currentWeight;
 float weight;
 
+// scale and NAU702 Parameters
+float scale, offset;
+int calib_weight;
+int raw_data;
+bool calibrationInProgress;
+
+float bottle_weight;
+float ml_to_fill;
+float old_beer_height, new_beer_height;
+int fill_percentage, last_fill_percentage;
+int nb_values_read;
+float saved_beer_gravity;
+int saved_calib_weight;
+float beer_gravity;
+
 
 constexpr int SCALE_SPS = 20;
 constexpr int MAX_FIFO_SIZE = SCALE_SPS;
+
+String bottle_size;
 constexpr float BOTTLE_33CL_MIN = 190.0f;
 constexpr float BOTTLE_33CL_MAX = 265.0f;
 constexpr float BOTTLE_50CL_MIN = 265.0f;

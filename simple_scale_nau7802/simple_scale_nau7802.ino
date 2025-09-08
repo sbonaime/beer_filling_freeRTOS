@@ -30,8 +30,6 @@ void doRobustTare() {
   static int32_t buf[N];
   int count = 0;
 
-  vTaskDelay(pdMS_TO_TICKS(500));  // petite pause
-
   while (count < N) {
     if (nau.available()) {
       buf[count++] = nau.read();
