@@ -13,8 +13,8 @@
 // https://docs.m5stack.com/en/arduino/arduino_board
 
 // Librairies
-// M5Unified 0.2.7
-// M5GFX 0.2.9
+// M5Unified 0.2.8
+// M5GFX 0.2.11
 // FIFObuf https://github.com/pervu/FIFObuf
 // SimpleKalmanFilter https://github.com/denyssene/SimpleKalmanFilter
 
@@ -271,7 +271,19 @@ static inline void drawWeight() {
   }
 }
 
-static inline void drawTare() {
+// static inline void drawTare() {
+
+//   M5.Display.fillScreen(TFT_BLACK);
+//   M5.Display.setTextDatum(middle_left);
+//   M5.Display.setTextColor(TFT_YELLOW, TFT_BLACK);
+//   M5.Display.setFont(&fonts::FreeMonoBold18pt7b);
+//   M5.Display.setTextSize(1);
+
+//   M5.Display.drawString("Tare in ", 10, M5.Display.height() / 2);
+//   M5.Display.drawString("progress", 10, 37 + M5.Display.height() / 2);
+// }
+
+static inline void drawTwoLines(const char* line_1, const char* line_2) {
 
   M5.Display.fillScreen(TFT_BLACK);
   M5.Display.setTextDatum(middle_left);
@@ -279,9 +291,10 @@ static inline void drawTare() {
   M5.Display.setFont(&fonts::FreeMonoBold18pt7b);
   M5.Display.setTextSize(1);
 
-  M5.Display.drawString("Tare in ", 10, M5.Display.height() / 2);
-  M5.Display.drawString("progress", 10, 37 + M5.Display.height() / 2);
+  M5.Display.drawString(line_1, 10, M5.Display.height() / 2);
+  M5.Display.drawString(line_2, 10, 37 + M5.Display.height() / 2);
 }
+
 
 static inline void drawPump(uint16_t color) {
   M5.Display.fillScreen(color);
@@ -443,14 +456,12 @@ double sum_N_readings() {
   int start = N / 4, end = N * 3 / 4;
   double sum = 0.0;
   for (int i = start; i < end; i++) sum += buf[i];
-  return sum;
+  return sum / double(end - start);
 }
 void do_tare_scale() {
   calibrationInProgress = true;
-  double sum = sum_N_readings();
-
   Serial.println("Debut Tare");
-  double mean_core = sum / double(end - start);
+  double mean_core = sum_N_readings();
 
   offset = (float)mean_core;
   preferences.putFloat("offset", offset);
@@ -464,9 +475,8 @@ void do_scale_factor() {
   Serial.println("Debut Calibration");
 
   calibrationInProgress = true;
-  double sum = sum_N_readings();
 
-  double rawWithMass = sum / double(end - start);
+  double rawWithMass = sum_N_readings();
   double newScale = (rawWithMass - offset) / calib_weight;
 
   Serial.println("calib_weight : ");
@@ -516,7 +526,7 @@ void taskNAU7802(void*) {
 
       } else {
         Serial.println("NAU7802 non prêt in taskNAU7802");
-        vTaskDelay(pdMS_TO_TICKS(20));
+        vTaskDelay(pdMS_TO_TICKS(10));
       }
     }
 
@@ -790,6 +800,7 @@ void taskMenu(void*) {
             updateValue(calib_weight);
             break;
           case BTN_B:
+            drawTwoLines("Calibration ", "in progress");
             do_scale_factor();
             appState = STATE_MAIN_MENU;
             break;
@@ -807,16 +818,13 @@ void taskMenu(void*) {
           // Stop the pump
           setPumpPWMpercent(0);
         }
-      } else {
-        if (evt == BTN_B) {
-          // Serial.println("[Screen] back to main menu");
-          if (appState == STATE_TARE) {
-            // Tare Scale
-            do_tare_scale();
-          }
-          appState = STATE_MAIN_MENU;
-        }
       }
+      // } else if (appState == STATE_TARE) {
+      //   if (evt == BTN_B) {
+      //     do_tare_scale();
+      //     appState = STATE_MAIN_MENU;
+      //   }
+      // }
     }
     vTaskDelay(pdMS_TO_TICKS(10));
   }
@@ -832,6 +840,8 @@ void taskDisplay(void*) {
     bool needRedraw = false;
     float local_currentWeight = 0;
     float local_moving_average = 0;
+    float seuil_affichage = 1;
+
     if (appState != lastState || currentSelection != lastSelection) {
       needRedraw = true;
       switch (appState) {
@@ -842,8 +852,9 @@ void taskDisplay(void*) {
         case STATE_PUMP: drawPump(TFT_BLACK); break;
         case STATE_GRAVITY: drawSettingMenu("Final Gravity", beer_gravity); break;
         case STATE_TARE:
-          drawTare();
+          drawTwoLines("Tare in", "progress");
           do_tare_scale();
+          appState = STATE_MAIN_MENU;
           break;
         case STATE_CALIBRATION:
           drawSettingMenu("Calib Weight", calib_weight);
@@ -860,7 +871,7 @@ void taskDisplay(void*) {
         local_moving_average = moving_average;
         xSemaphoreGive(xMutex);
 
-        if ((fabs(local_currentWeight - lastDrawnWeight) > 0.01f) || (fabs(local_moving_average - lastDrawnAverage) > 0.01f)) {
+        if ((fabs(local_currentWeight - lastDrawnWeight) > seuil_affichage) || (fabs(local_moving_average - lastDrawnAverage) > seuil_affichage)) {
           lastDrawnWeight = local_currentWeight;
           lastDrawnAverage = local_moving_average;
           needRedraw = true;
@@ -1047,14 +1058,21 @@ void setup() {
   appState = STATE_MAIN_MENU;
 
 
-  xTaskCreate(taskButtons, "TaskButtons", 4096, nullptr, 1, &taskButtonsHandle);
-  xTaskCreate(taskMenu, "TaskMenu", 4096, nullptr, 1, &taskMenuHandle);
-  xTaskCreate(taskDisplay, "TaskDisplay", 8192, nullptr, 1, &taskDisplayHandle);
-  xTaskCreate(taskNAU7802, "NAU7802_Task", 8192, nullptr, 3, &taskNAU7802Handle);
-  xTaskCreate(taskFiller, "Filler_Task", 8192, nullptr, 2, &taskFillerHandle);
+  // xTaskCreate(taskButtons, "TaskButtons", 4096, nullptr, 1, &taskButtonsHandle);
+  // xTaskCreate(taskMenu, "TaskMenu", 4096, nullptr, 1, &taskMenuHandle);
+  // xTaskCreate(taskDisplay, "TaskDisplay", 8192, nullptr, 1, &taskDisplayHandle);
+  // xTaskCreate(taskNAU7802, "NAU7802_Task", 8192, nullptr, 3, &taskNAU7802Handle);
+  // xTaskCreate(taskFiller, "Filler_Task", 8192, nullptr, 2, &taskFillerHandle);
 
 
-  //  xTaskCreate( vTaskCode, "NAME", STACK_SIZE, &ucParameterToPass, tskIDLE_PRIORITY, &xHandle );
+  // --- Tâches sur le CORE 0 (UI et moins critiques) ---
+  xTaskCreatePinnedToCore(taskButtons, "TaskButtons", 4096, nullptr, 1, &taskButtonsHandle, 0);
+  xTaskCreatePinnedToCore(taskMenu, "TaskMenu", 4096, nullptr, 1, &taskMenuHandle, 0);
+  xTaskCreatePinnedToCore(taskDisplay, "TaskDisplay", 8192, nullptr, 1, &taskDisplayHandle, 0);
+
+  // --- Tâches sur le CORE 1 (Temps réel et critiques) ---
+  xTaskCreatePinnedToCore(taskNAU7802, "NAU7802_Task", 8192, nullptr, 3, &taskNAU7802Handle, 1);
+  xTaskCreatePinnedToCore(taskFiller, "Filler_Task", 8192, nullptr, 2, &taskFillerHandle, 1);
 }
 
 

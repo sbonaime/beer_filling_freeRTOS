@@ -62,7 +62,7 @@ int saved_calib_weight;
 float beer_gravity;
 
 
-constexpr int SCALE_SPS = 20;
+constexpr int SCALE_SPS = 40;
 constexpr int MAX_FIFO_SIZE = SCALE_SPS;
 
 String bottle_size;
