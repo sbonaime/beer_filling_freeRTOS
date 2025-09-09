@@ -4,12 +4,14 @@
 
 
 
-
+// Pins
+const uint8_t pin_SDA = 16;
+const uint8_t pin_SCL = 17;
+const int pwmPin = 26;         // GPIO de sortie (ex: 26, 25, 19... éviter 34-39 car entrée seule)
 
 
 
 // PWM parameters
-const int pwmPin = 26;         // GPIO de sortie (ex: 26, 25, 19... éviter 34-39 car entrée seule)
 const int pwmChannel = 0;      // Canal PWM (0-15)
 const int pwmFreq = 10000;     // Fréquence : 10 kHz
 const int pwmResolution = 10;  // Résolution : 10 bits (0-1023)

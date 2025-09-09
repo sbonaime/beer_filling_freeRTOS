@@ -1,15 +1,16 @@
 #include <Wire.h>
 #include <Adafruit_NAU7802.h>
 
+
 Adafruit_NAU7802 nau = Adafruit_NAU7802();
-int SCALE_SPS = 40;
+int SCALE_SPS = 80;
 
 // ---------- FreeRTOS ----------
 TaskHandle_t taskNAU7802Handle = nullptr;
 
 void taskNAU7802(void*) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xFrequency = pdMS_TO_TICKS(1000 / SCALE_SPS);
+  const TickType_t xFrequency = pdMS_TO_TICKS(1 + (1000 / SCALE_SPS));
 
   for (;;) {
     if (nau.available()) {
@@ -29,8 +30,10 @@ void setup() {
   Serial.begin(115200);
   delay(200);
 
-  Wire.begin();
-  // Wire.begin(22, 23);
+  const uint8_t pin_SDA = 16;
+  const uint8_t pin_SCL = 17;
+
+  Wire.begin(pin_SDA, pin_SCL, 400000);  // SDA, SCL
   delay(200);
 
   Serial.println("Scan I2C...");

@@ -32,8 +32,6 @@ Preferences preferences;
 SimpleKalmanFilter kaman_filter = SimpleKalmanFilter(.1, .1, 0.1);
 
 
-const uint8_t dataPin = 16;
-const uint8_t clockPin = 17;
 // Mutex for the weight
 SemaphoreHandle_t xMutex = NULL;
 bool debug_print = false;
@@ -95,7 +93,6 @@ enum ButtonEvent { BTN_A,
 static inline void drawMenu() {
   if (debug_print) Serial.println("debut drawMenu ");
 
-  M5.Display.fillScreen(TFT_BLACK);
   M5.Display.setTextDatum(middle_left);
   M5.Display.setFont(&fonts::FreeMonoBold18pt7b);
   M5.Display.setTextSize(1);
@@ -105,12 +102,12 @@ static inline void drawMenu() {
   for (int i = 0; i < menuSize; i++) {
     M5.Display.setTextColor((i == currentSelection) ? TFT_YELLOW : TFT_WHITE, TFT_BLACK);
     M5.Display.drawString(menuItems[i], 10, 20 + menu_item_height + i * menu_item_height);
-    break;
   }
 
   bottle_scaling = 1;
   beer_in_memory.createSprite(1 + 24 * bottle_scaling, 1 + bottle_scaling * (72));
-  draw_beer_bottle(280, 50, 33, 33, TFT_BEER, 0x80, false);
+  // draw_beer_bottle(280, 20, 33, 33, TFT_BEER, 0x50, false);
+  draw_beer_bottle(280, 50, 33, 33, TFT_BEER, 0xFFFFFF, false);
   drawWeight();
 }
 
@@ -202,6 +199,7 @@ void draw_beer_bottle(int x_position, int y_position, int poids_actuel, int poid
       // beer_in_memory.createSprite(D1 + 1, H1 + HG + H2 + 1);
 
       // Fill it with black (this will be the transparent colour this time)
+      beer_in_memory.setColorDepth(16);
       beer_in_memory.fillSprite(transparent_color);
 
       // beer rectangle
@@ -449,7 +447,7 @@ double sum_N_readings() {
     } else {
       Serial.println("nau not available");
     }
-    vTaskDelay(pdMS_TO_TICKS(1000 / SCALE_SPS));
+    vTaskDelay(pdMS_TO_TICKS(2 + (1000 / SCALE_SPS)));
   }
 
   std::sort(buf, buf + N);
@@ -460,14 +458,16 @@ double sum_N_readings() {
 }
 void do_tare_scale() {
   calibrationInProgress = true;
-  Serial.println("Debut Tare");
+  Serial.println("Tare Start");
   double mean_core = sum_N_readings();
 
   offset = (float)mean_core;
+  // Save values in EEPROM
   preferences.putFloat("offset", offset);
 
-  appState = STATE_MAIN_MENU;
+  Serial.println("Tare done");
   calibrationInProgress = false;
+  M5.Display.fillScreen(TFT_BLACK);
   drawMenu();
 }
 
@@ -498,7 +498,7 @@ void do_scale_factor() {
 
 void taskNAU7802(void*) {
   TickType_t xLastWakeTime = xTaskGetTickCount();
-  const TickType_t xFrequency = pdMS_TO_TICKS(1000 / SCALE_SPS);  // 25 ms pour 40 SPS
+  const TickType_t xFrequency = pdMS_TO_TICKS(2 + (1000 / SCALE_SPS));  // 1 ms of delay
 
   for (;;) {
     if (!calibrationInProgress) {
@@ -694,7 +694,7 @@ void taskFiller(void*) {
         if (bottle_filled) {
           vTaskDelay(pdMS_TO_TICKS(150));
         } else {
-          vTaskDelay(pdMS_TO_TICKS(1000 / SCALE_SPS));
+          vTaskDelay(pdMS_TO_TICKS(2 + (1000 / SCALE_SPS)));
         }
       } else {
         Serial.println("Timeout mutex dans taskFiller");
@@ -717,12 +717,12 @@ void taskMenu(void*) {
             if (debug_print) Serial.println("BTN_A");
             if (debug_print) Serial.print("currentSelection ");
             if (debug_print) Serial.println(currentSelection);
+            break;
           case BTN_C:
             currentSelection = (currentSelection + 1) % menuSize;
             if (debug_print) Serial.println("BTN_C");
             if (debug_print) Serial.print("currentSelection ");
             if (debug_print) Serial.println(currentSelection);
-
             break;
           case BTN_B:
             if (debug_print) Serial.println("BTN_B");
@@ -817,12 +817,6 @@ void taskMenu(void*) {
           setPumpPWMpercent(0);
         }
       }
-      // } else if (appState == STATE_TARE) {
-      //   if (evt == BTN_B) {
-      //     do_tare_scale();
-      //     appState = STATE_MAIN_MENU;
-      //   }
-      // }
     }
     vTaskDelay(pdMS_TO_TICKS(10));
   }
@@ -844,12 +838,14 @@ void taskDisplay(void*) {
       needRedraw = true;
       switch (appState) {
         case STATE_MAIN_MENU:
+          if (lastState != STATE_MAIN_MENU) M5.Display.fillScreen(TFT_BLACK);
           drawMenu();
           break;
         case STATE_FILLER: drawFilller(); break;
         case STATE_PUMP: drawPump(TFT_BLACK); break;
         case STATE_GRAVITY: drawSettingMenu("Final Gravity", beer_gravity); break;
         case STATE_TARE:
+          delay(100);
           drawTwoLines("Tare in", "progress");
           do_tare_scale();
           appState = STATE_MAIN_MENU;
@@ -905,8 +901,13 @@ void setPumpPWMpercent(float percent_duty) {
 // ---------- Setup / Loop ----------
 void setup() {
 
-
   auto cfg = M5.config();
+
+  const uint8_t pin_SDA = 16;
+  const uint8_t pin_SCL = 17;
+
+
+
   // Mutex
   xMutex = xSemaphoreCreateMutex();
   kf_weight = 0.0;
@@ -918,23 +919,23 @@ void setup() {
   M5.Display.setRotation(1);
 
   Serial.begin(115200);
-  // Wire.begin(21, 22, 100000);  // SDA=21, SCL=22, 100kHz
   delay(1000);
 
-  Wire.begin();  // SDA, SCL
+  // Wire1.begin(pin_SDA, pin_SCL, 100000);  // SDA, SCL
+  Wire1.begin(pin_SDA, pin_SCL);  // SDA, SCL
+  vTaskDelay(1000);
 
   Serial.println("Scan I2C...");
   for (byte address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    if (Wire.endTransmission() == 0) {
+    Wire1.beginTransmission(address);
+    if (Wire1.endTransmission() == 0) {
       Serial.print("Trouvé périphérique I2C à 0x");
       Serial.println(address, HEX);
     }
   }
 
 
-
-  if (!nau.begin()) {
+  if (!nau.begin(&Wire1)) {
     Serial.println("Erreur : NAU7802 non détecté !");
     while (1) vTaskDelay(1000);
   }
@@ -967,11 +968,6 @@ void setup() {
       break;
   }
 
-  // Take SCALE_SPS readings to flush out readings
-  for (uint8_t i = 0; i < SCALE_SPS; i++) {
-    while (!nau.available()) delay(1);
-    nau.read();
-  }
 
   while (!nau.calibrate(NAU7802_CALMOD_INTERNAL)) {
     Serial.println("Failed to calibrate internal offset, retrying!");
@@ -985,9 +981,13 @@ void setup() {
   }
   Serial.println("Calibrated system offset");
 
-
-
+  // Take 2*SCALE_SPS readings to flush out readings
+  for (uint8_t i = 0; i < 2 * SCALE_SPS; i++) {
+    while (!nau.available()) delay(1);
+    nau.read();
+  }
   Serial.println("NAU7802 initialisé !");
+
 
   // Sprite 8 bits pour éviter 0x0
   image_in_memory.setColorDepth(8);
@@ -1047,6 +1047,8 @@ void setup() {
 
   buttonQueue = xQueueCreate(10, sizeof(ButtonEvent));
   Serial.println("Starting Filler Machine");
+  M5.Display.fillScreen(TFT_BLACK);
+
   appState = STATE_MAIN_MENU;
 
 
